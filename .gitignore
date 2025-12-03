@@ -1,0 +1,10 @@
+# Security (Ignored forever)
+.env
+_OLD_MESS/
+
+# System Junk
+.DS_Store
+*.log
+
+# Dependencies (Too heavy for Git)
+node_modules/

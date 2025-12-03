@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pro Speech Transcriber</title>
+
+    <style>
+        :root {
+            /* === PREMIUM GLASS VARIABLES === */
+            --bg-color: #f0f2f5;
+            --panel-bg: rgba(255, 255, 255, 0.65);
+            --card-bg: rgba(255, 255, 255, 0.75);
+            --input-bg: rgba(255, 255, 255, 0.5);
+            
+            --text-main: #1d1d1f;
+            --text-secondary: #515154;
+            --text-subtle: #86868b;
+            
+            --accent-color: #007aff;
+            --accent-hover: #005ecb;
+            --accent-glow: rgba(0, 122, 255, 0.25);
+            
+            --danger-color: #ff3b30;
+            --info-color: #5ac8fa;
+            --success-color: #34c759;
+            
+            --border-color: rgba(255,255,255,0.8);
+            --shadow-sm: 0 4px 12px rgba(31, 38, 135, 0.07);
+            --shadow-md: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+            --glass-filter: blur(12px) saturate(180%);
+            
+            --category-class: #ff9500; 
+            --category-hw: #007aff; 
+            --category-discussion: #34c759;
+            --category-practice: #af52de; 
+            --category-life: #5856d6;
+        }
+
+        body[data-theme="dark"] {
+            --bg-color: #000000;
+            --panel-bg: rgba(28, 28, 30, 0.65);
+            --card-bg: rgba(44, 44, 46, 0.75);
+            --input-bg: rgba(120, 120, 128, 0.2);
+            
+            --text-main: #f5f5f7;
+            --text-secondary: #aeaeb2;
+            --text-subtle: #636366;
+            
+            --accent-color: #0a84ff;
+            --accent-hover: #409cff;
+            --accent-glow: rgba(10, 132, 255, 0.3);
+            --danger-color: #ff453a;
+            
+            --border-color: rgba(255,255,255,0.1);
+            --shadow-sm: 0 4px 12px rgba(0,0,0,0.3);
+            --shadow-md: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        body {
+            background: var(--bg-color); 
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0, 122, 255, 0.08) 0%, transparent 25%), 
+                radial-gradient(circle at 90% 80%, rgba(255, 59, 48, 0.08) 0%, transparent 25%);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 1rem; margin: 0; box-sizing: border-box;
+            transition: background 0.3s, color 0.3s;
+            min-height: calc(100vh - 2rem); /* Ensure body takes at least viewport height */
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(120, 120, 128, 0.3); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(120, 120, 128, 0.5); }
+
+        .main-container { display: flex; gap: 1.5rem; width: 100%; height: 100%; position: relative; }
+
+        /* ======== PREMIUM SIDE HANDLES ======== */
+        .panel-handle {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 27px; height: 400px;
+            border: 0px solid var(--border-color); background: var(--panel-bg);
+            color: var(--text-secondary); backdrop-filter: var(--glass-filter); -webkit-backdrop-filter: var(--glass-filter);
+            box-shadow: var(--shadow-sm); cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            z-index: 50; touch-action: none; overflow: hidden;
+            border-radius: 1px;
+        }
+        .panel-handle:hover {
+            background: var(--accent-color); color: white;
+            box-shadow: 0 0 15px var(--accent-glow); border-color: transparent;
+            width: 32px;
+        }
+        .panel-handle svg { width: 16px; height: 16px; transition: transform 0.4s; }
+        
+        #history-toggle-btn { left: -14px; }
+        #right-panel-toggle-btn { right: -14px; }
+
+        body.left-panel-open #history-toggle-btn { left: calc(var(--left-panel-width, 300px) + 4.0rem); }
+        body.right-panel-open #right-panel-toggle-btn { right: calc(var(--right-panel-width, 300px) + 2.5rem); }
+        body.left-panel-open #history-toggle-btn svg, body.right-panel-open #right-panel-toggle-btn svg { transform: rotate(180deg); }
+        
+        /* Resizing state */
+        .panel-handle.resizing { cursor: col-resize; background: var(--accent-color); color: white; }
+        body.resizing { cursor: col-resize; user-select: none; }
+
+        /* ======== SIDE PANELS ======== */
+        #history-panel, #right-panel {
+            background: var(--panel-bg); backdrop-filter: var(--glass-filter); -webkit-backdrop-filter: var(--glass-filter);
+            border: 1px solid var(--border-color); border-radius: 24px; 
+            padding: 1.25rem; flex-shrink: 0; display: flex; flex-direction: column; 
+            box-shadow: var(--shadow-md); transition: opacity 0.3s, width 0.3s, padding 0.3s, margin 0.3s;
+            overflow-y: auto; overflow-x: hidden; z-index: 40;
+            height: calc(100% - 2.5rem); margin-top: 0; position: relative;
+        }
+        #history-panel { width: var(--left-panel-width, 300px); }
+        #right-panel { width: var(--right-panel-width, 300px); }
+        
+        #history-panel.collapsed { width: 0; padding: 0; margin-left: -2rem; opacity: 0; border: none; }
+        #right-panel.collapsed { width: 0; padding: 0; margin-right: -2rem; opacity: 0; border: none; }
+        
+        #history-panel h3, #right-panel h3 { margin: 0 0 1.25rem 0; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+
+        /* ======== HISTORY ITEMS ======== */
+        .history-item { 
+            padding: 1rem; border-radius: 16px; margin-bottom: 0.75rem; 
+            background: var(--card-bg); border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm); transition: all 0.2s ease; position: relative; overflow: hidden;
+        }
+        .history-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--accent-color); }
+        .history-item.active { background: var(--card-bg); border-color: var(--accent-color); }
+        .history-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: transparent; transition: background 0.2s; }
+        .history-item.active::before { background: var(--accent-color); }
+        
+        .history-item-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+        .history-item-content { cursor: pointer; }
+        .history-item-categories { display: flex; gap: 4px; }
+        .category-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .history-item .date { font-weight: 600; font-size: 0.9em; }
+        .history-item .preview { font-size: 0.85em; color: var(--text-secondary); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        .history-item-controls { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+        .history-btn { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 10px; font-size: 0.75em; cursor: pointer; transition: all 0.2s; }
+        .history-btn:hover { background: var(--accent-color); color: white; border-color: transparent; }
+        .delete-btn { color: var(--danger-color); border-color: var(--danger-color); background: transparent; }
+        .delete-btn:hover { background: var(--danger-color); color: white; }
+        .timestamp { font-size: 0.75em; color: var(--text-subtle); }
+
+        /* Search & Filter */
+        #history-filter-controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+        #history-search-input { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid var(--border-color); background: var(--input-bg); padding: 8px 12px; font-size: 0.9rem; color: var(--text-main); }
+        #history-search-input:focus { outline: none; border-color: var(--accent-color); background: var(--card-bg); }
+        #history-category-filters { display: flex; gap: 0.5rem; align-items: center; }
+        .category-filter-btn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.2s; }
+        .category-filter-btn.active { border-color: var(--text-main); transform: scale(1.1); }
+        #category-trash-btn { background: transparent; border: 2px dashed var(--border-color); border-radius: 50%; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        #category-trash-btn.drag-over { background: rgba(255, 59, 48, 0.1); border-color: var(--danger-color); }
+
+        #history-footer { margin-top: 1rem; display: flex; gap: 0.5rem; }
+
+        /* ======== MAIN CONTENT AREA ======== */
+        .glass-card {
+            background: var(--card-bg); backdrop-filter: var(--glass-filter); -webkit-backdrop-filter: var(--glass-filter);
+            border-radius: 32px; box-shadow: var(--shadow-md); border: 1px solid var(--border-color);
+            flex-grow: 1; padding: 2rem; display: flex; flex-direction: column; position: relative; z-index: 10;
+        }
+
+        #input-methods { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+        #text-input {
+            width: 100%; box-sizing: border-box; height: auto; border-radius: 16px; 
+            border: 1px solid var(--border-color); background: var(--input-bg); 
+            padding: 16px; font-size: 1.1rem; font-family: inherit; resize: none; color: var(--text-main);
+            transition: all 0.2s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+        #text-input:focus { outline: none; background: var(--card-bg); border-color: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-glow); }
+        
+        #waveContainer { display: none; align-items: center; justify-content: center; height: 150px; gap: 6px; margin-bottom: 1rem; flex-shrink: 0; }
+        #waveContainer.show { display: flex; }
+        .bar { width: 6px; background: var(--accent-color); border-radius: 3px; height: 5px; transition: height 0.05s; }
+
+        #top-controls-wrapper { transition: all 0.3s ease-in-out; overflow: hidden; flex-shrink: 0; padding-top: 1rem; }
+        #top-controls-wrapper.hidden { max-height: 0 !important; margin: 0 !important; padding: 0 !important; opacity: 0; }
+        
+        #tts-controls {
+            display: grid; grid-template-columns: auto 1fr; gap: 0.75rem 1rem;
+            background: var(--input-bg); padding: 1rem; border-radius: 16px; margin-bottom: 1rem; align-items: center;
+        }
+        .tts-group { display: contents; }
+        .tts-group label { font-weight: 500; color: var(--text-secondary); text-align: right; font-size: 0.9em; }
+        .tts-group select, .tts-group input { border-radius: 8px; border: 1px solid var(--border-color); padding: 6px 10px; background: var(--card-bg); color: var(--text-main); width: 100%; }
+
+        #finalOutput { text-align: left; background: transparent; padding: 0; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; margin-top: 1rem; }
+        
+        /* Word Grid */
+        .sentence-group { padding-bottom: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); outline: none; }
+        .sentence-group:focus { border-radius: 10px; }
+        .word-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: stretch; }
+        .word-unit {
+            display: flex; flex-direction: column; background: var(--input-bg);
+            border-radius: 12px; padding: 0.5rem; min-width: 80px; flex-grow: 1;
+            justify-content: flex-start; position: relative; border: 1px solid transparent;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .word-unit:hover { background: var(--card-bg); border-color: var(--accent-color); }
+        .word-unit.selected, .char-list-item.selected {
+            border-color: var(--accent-color);
+            background: rgba(0, 122, 255, 0.1);
+        }
+        .word-unit.punctuation-unit, .word-unit.number-unit { min-width: unset; flex-grow: unset; justify-content: center; align-items: center; }
+        .char-grid { display: flex; flex-wrap: wrap; justify-content: center; flex-grow: 1; align-items: center; }
+        
+        .char-unit { display: flex; flex-direction: column; align-items: center; min-width: 40px; padding: 0 2px; }
+        .char-unit .char { font-family: "KaiTi", "楷体", serif; font-size: 2.2em; color: var(--text-main); line-height: 1.2; cursor: pointer; transition: transform 0.2s; }
+        .char-unit .char:hover { transform: scale(1.15); color: var(--accent-hover); }
+        .char-unit .char.highlight { color: var(--accent-color); text-shadow: 0 0 10px var(--accent-glow); animation: pulse-highlight 1s infinite; }
+        
+        /* Hide checkboxes within the main output area, as selection is handled by clicking the card.
+           This is scoped to #finalOutput to avoid affecting other UI components. */
+        #finalOutput .char-unit .char-checkbox {
+            display: none !important;
+        }
+
+        .word-definition { border-top: 1px solid var(--border-color); margin-top: 0.5rem; padding-top: 0.5rem; text-align: center; display: flex; flex-direction: column; gap: 0.25rem; }
+        .word-pinyin { font-size: 0.95em; color: var(--accent-color); font-weight: 600; cursor: pointer; }
+        .word-english { font-size: 0.9em; color: var(--text-main); cursor: pointer; }
+
+        .sentence-translation { font-size: 1.1em; font-style: italic; color: var(--text-secondary); margin-top: 0.75rem; display: flex; align-items: center; gap: 0.75rem; }
+
+        .full-paragraph-output { border-top: 2px solid var(--border-color); padding-top: 1.5rem; margin-top: 1.5rem; text-align: center; }
+        .final-chinese { font-size: 1.4rem; font-weight: 500; margin-bottom: 0.5rem; font-family: "KaiTi", "楷体", serif; }
+        .final-pinyin { font-size: 1.1rem; color: var(--accent-color); margin-bottom: 1rem; }
+        .final-english { font-size: 1.2rem; font-style: italic; color: var(--text-secondary); }
+
+        /* Character List */
+        .char-list-summary { border-top: 2px solid var(--border-color); padding-top: 1.5rem; margin-top: 1.5rem; }
+        .char-list-summary h3 { text-align: center; margin-top: 0; }
+        .char-list-container { display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; }
+        .char-list-item { display: inline-flex; flex-direction: column; align-items: center; padding: 0.25rem; min-width: 45px; text-align: center; border-radius: 8px; transition: background 0.2s; }
+        .char-list-item:hover { background: var(--input-bg); }
+        .char-list-char { font-family: "KaiTi", "楷体", serif; font-size: 1.5em; color: var(--text-main); cursor: pointer; }
+        .char-list-pinyin { font-size: 0.75em; color: var(--text-secondary); }
+        .char-list-english { font-size: 0.65em; color: var(--text-subtle); max-width: 50px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .char-list-line { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.3rem 0.5rem; width: 100%; margin-bottom: 0.5rem;}
+        .char-list-punctuation { font-size: 1.5em; color: var(--text-secondary); margin: 0 0.1rem; display: inline-flex; align-items: flex-end; padding-bottom: 0.1rem; }
+
+        /* Play Buttons */
+        .play-btn-svg, .char-list-line-play { 
+            width: 28px; height: 28px; border-radius: 50%; background: var(--accent-color); 
+            color: white; display: inline-flex; align-items: center; justify-content: center; 
+            cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 2px 8px var(--accent-glow);
+        }
+        .play-btn-svg:hover, .char-list-line-play:hover { transform: scale(1.1); box-shadow: 0 4px 12px var(--accent-glow); }
+        .play-btn-svg svg, .char-list-line-play svg { width: 14px; height: 14px; fill: white; }
+
+        /* ======== RIGHT PANEL & TOOLS ======== */
+        .panel-section { margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
+        .panel-title { text-align: center; cursor: pointer; font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+        .panel-title::after { content: '🔼'; font-size: 0.8em; transition: transform 0.3s; }
+        .panel-section.collapsed .panel-title::after { transform: rotate(180deg); }
+        .panel-section.collapsed > *:not(.panel-title) { max-height: 0 !important; opacity: 0; overflow: hidden; margin: 0; padding: 0; }
+
+        .panel-btn {
+            background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 14px;
+            padding: 0.8rem; font-weight: 600; width: 100%; display: flex; align-items: center; gap: 0.8rem;
+            color: var(--text-main); cursor: pointer; transition: all 0.2s; margin-bottom: 0.5rem; box-shadow: var(--shadow-sm);
+        }
+        .panel-btn:hover { transform: translateY(-2px); border-color: var(--accent-color); color: var(--accent-color); box-shadow: var(--shadow-md); }
+        .panel-btn svg { width: 20px; height: 20px; }
+        
+        #session-controls, #flashcard-controls, #radicals-controls { display: flex; flex-direction: column; gap: 0.5rem; }
+
+        /* Radicals */
+        .char-selector-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; background: var(--input-bg); padding: 0.5rem; border-radius: 12px; margin-bottom: 1rem; }
+        .radical-char-btn { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 40px; height: 40px; font-size: 1.2rem; cursor: pointer; font-family: "KaiTi", "楷体", serif; }
+        .radical-char-btn.active { background: var(--accent-color); color: white; border-color: var(--accent-color); }
+        .radical-item { background: var(--input-bg); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; }
+        .radical-item-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+        .radical-char { font-size: 2.5rem; font-weight: bold; font-family: "KaiTi", "楷体", serif; }
+        .radical-pinyin { color: var(--accent-color); font-size: 1.2rem; }
+        .radical-strokes { margin-bottom: 1rem; } /* Add space below stroke count */
+        .component-list { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; }
+        .component-item-wrapper { display: flex; flex-direction: column; align-items: center; text-align: center; }
+        .component-meaning { font-size: 0.75em; color: var(--text-secondary); margin-top: 0.2rem; max-width: 80px; }
+        .component-separator { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 1.5em; color: var(--text-secondary); padding-top: 1rem; }
+
+        .component-list .component-item { 
+            display: inline-block; 
+            background: white; 
+            color: #1d1d1f; /* Set a fixed dark color for readability */
+            padding: 0.36rem 0.9rem; /* Increased padding */
+            border-radius: 8px; /* Slightly larger radius */
+            border: 1px solid var(--border-color); 
+            margin: 0.3rem; /* Increased margin */
+            cursor: pointer; font-family: "KaiTi", "楷体", serif; font-size: 1.8em; /* Increased font size by 80% */ }
+        .radical-practice-area { width: 240px; height: 240px; margin: 1rem auto; background: white; border-radius: 12px; }
+        .radical-practice-area, .radical-practice-message {
+            display: none; /* Hide by default */
+        }
+        .radical-actions {
+            display: flex; gap: 0.5rem;
+            margin-bottom: 2rem; /* Add two lines of space below the buttons */
+        }
+        #char-info-modal-body .form-group { display: flex; flex-direction: column; }
+        #char-info-modal-body .form-group.full-width { grid-column: 1 / -1; }
+        #char-info-modal-body label { font-weight: 600; font-size: 0.85em; margin-bottom: 0.25rem; color: var(--text-secondary); }
+        #char-info-modal-body input, #char-info-modal-body textarea { width: 100%; box-sizing: border-box; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); }
+        #char-info-modal-body textarea { resize: vertical; min-height: 80px; }
+
+        /* Stats */
+        .stat-item { display: grid; grid-template-columns: 50px 1fr 1fr 40px; align-items: center; gap: 0.5rem; background: var(--input-bg); padding: 0.5rem; border-radius: 8px; margin-bottom: 4px; cursor: pointer; }
+        .stat-item:hover { background: var(--card-bg); border: 1px solid var(--accent-color); }
+
+        /* ======== FLASHCARD SYSTEM ======== */
+        #flashcard-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 2000; }
+        #flashcard-modal.fullscreen-view { background: var(--bg-color); backdrop-filter: none; }
+        #flashcard-container { width: 92vw; max-width: 1100px; height: 85vh; max-height: 800px; background: var(--card-bg); border-radius: 24px; box-shadow: var(--shadow-md); display: flex; flex-direction: column; overflow: hidden; }
+        #flashcard-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        #flashcard-header h3 { margin: 0; font-size: 1.5rem; }
+        #flashcard-close-btn { background: none; border: none; font-size: 2rem; cursor: pointer; color: var(--text-main); }
+        
+        #flashcard-main { padding: 1.5rem; flex-grow: 1; display: grid; gap: 1.5rem; grid-template-columns: 280px 1fr 300px; overflow: hidden; }
+        #flashcard-main > * { min-height: 0; }
+        #flashcard-main.view-mode { grid-template-columns: 1fr; }
+        #flashcard-main.view-mode #deck-manager, #flashcard-main.view-mode #deck-details { display: none !important; }
+        #flashcard-main.view-mode #flashcard-viewer { display: flex; }
+
+        /* Deck Manager */
+        #deck-manager, #deck-details { background: var(--input-bg); border-radius: 16px; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+        #deck-list { min-height: 100px; max-height: 200px; overflow-y: auto; background: var(--panel-bg); border-radius: 8px; padding: 0.5rem; }
+        .deck-item { padding: 0.75rem; border-radius: 8px; background: var(--card-bg); border: 1px solid transparent; cursor: pointer; display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
+        .deck-item.active { border-color: var(--accent-color); background: rgba(0, 122, 255, 0.1); }
+        #deck-manager-actions { display: flex; gap: 0.5rem; }
+        #deck-manager-actions button { flex: 1; border: none; border-radius: 8px; padding: 0.6rem; cursor: pointer; background: var(--panel-bg); font-weight: 600; border: 1px solid var(--border-color); }
+        #deck-summary { display: grid; grid-template-columns: 1fr; gap: 0.8rem; }
+        
+        /* Deck Details */
+        #deck-card-table { background: var(--panel-bg); border-radius: 12px; padding: 0.5rem; overflow-y: auto; max-height: 220px; }
+        .deck-card-row { display: grid; grid-template-columns: 60px 1fr 80px 100px; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--border-color); }
+        .deck-card-row:last-child { border-bottom: none; }
+        .deck-card-char { font-size: 1.5rem; text-align: center; font-weight: bold; font-family: "KaiTi", "楷体", serif; }
+        .deck-card-actions { display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-end; }
+        .deck-card-actions button { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--card-bg); cursor: pointer; }
+
+        /* Flashcard Viewer */
+        #flashcard-viewer { background: transparent; border-radius: 18px; padding: 0; display: none; flex-direction: column; height: 100%; }
+        #flashcard { width: 100%; flex-grow: 1; perspective: 1000px; cursor: pointer; margin-bottom: 1rem; position: relative; min-height: 300px; }
+        .flashcard-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
+        #flashcard.flipped .flashcard-inner { transform: rotateY(180deg); }
+        .flashcard-face { position: absolute; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--card-bg); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); padding: 1rem; text-align: center; }
+        #flashcard-back { transform: rotateY(180deg); }
+        .flashcard-actions-bar { margin-top: auto; display: flex; gap: 0.5rem; width: 100%; justify-content: center; padding-top: 1rem; border-top: 1px solid var(--border-color); }
+        .flashcard-action-btn { background: transparent; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.8rem; font-size: 0.75rem; cursor: pointer; color: var(--text-secondary); transition: all 0.2s; }
+        .flashcard-action-btn:hover { background: var(--accent-color); color: white; border-color: var(--accent-color); }
+        
+        .flashcard-face-part.char { font-size: 5rem; font-weight: 600; font-family: "KaiTi", "楷体", serif; }
+        .flashcard-face-part.pinyin { font-size: 2rem; color: var(--accent-color); }
+        .flashcard-face-part.def { font-size: 1.2rem; margin: 1rem 0; }
+        .flashcard-face-part.writing { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+        
+        #flashcard-nav { display: flex; gap: 1rem; justify-content: center; margin-bottom: 1rem; }
+        #flashcard-nav button { flex: 1; padding: 1rem; border-radius: 12px; border: 1px solid var(--border-color); background: var(--card-bg); font-weight: 600; cursor: pointer; box-shadow: var(--shadow-sm); }
+        #flashcard-test-controls { display: none; gap: 1rem; margin-top: 1rem; }
+        #flashcard-test-controls button { flex: 1; padding: 1rem; border-radius: 12px; border: none; font-weight: bold; color: white; cursor: pointer; }
+        .danger { background: var(--danger-color); } .success { background: var(--success-color); } .neutral { background: var(--text-secondary); }
+
+        /* ======== UTILITY & TOP RIGHT CONTROLS ======== */
+        .top-right-controls { position: absolute; top: 1rem; right: 1.5rem; display: flex; gap: 0.75rem; align-items: center; z-index: 20; }
+        .top-right-group { display: flex; align-items: center; gap: 0.5rem; background: var(--panel-bg); padding: 0.25rem 0.5rem; border-radius: 999px; border: 1px solid var(--border-color); }
+        .top-right-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .top-right-btn:hover { background: var(--accent-color); color: white; border-color: transparent; }
+        
+        #controls-toggle-btn { position: absolute; left: 50%; transform: translateX(-50%); top: 1rem; background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; z-index: 20; }
+
+        /* Overlays & Modals */
+        #panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 30; }
+        body.mobile-layout.left-panel-open #panel-overlay, body.mobile-layout.right-panel-open #panel-overlay { opacity: 1; pointer-events: auto; }
+        .main-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 3000; }
+        .main-modal.active { display: flex; }
+        #modal-content { background: var(--card-bg); padding: 2rem; border-radius: 24px; max-width: 500px; width: 90%; box-shadow: var(--shadow-md); text-align: center; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem; }
+        /* === NEW: Styles for Hanzi Writer Modal Controls === */
+        #hanzi-modal-controls { display: flex; gap: 0.5rem; margin-top: 1rem; }
+        #hanzi-modal-controls .panel-btn { flex: 1; /* Make buttons share space equally */ }
+        #hanzi-modal-info { margin-top: 1rem; }
+        #hanzi-modal-pinyin { font-size: 1.2em; font-weight: 600; color: var(--accent-color); cursor: pointer; }
+        #hanzi-modal-def { font-size: 1em; color: var(--text-secondary); cursor: pointer; }
+        #hanzi-modal-details { margin-top: 1.5rem; text-align: left; border-top: 1px solid var(--border-color); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+        .hanzi-modal-components { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 0.5rem; }
+        .hanzi-modal-equation { font-style: italic; color: var(--text-secondary); text-align: center; }
+        .hanzi-modal-mnemonic { font-size: 0.9em; line-height: 1.5; text-align: center; }
+        .hanzi-modal-actions { margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
+        .hanzi-modal-actions .panel-btn { margin: 0 auto; max-width: 200px; }
+
+        /* Loading placeholder styles */
+        .loading {
+            color: var(--text-subtle);
+            font-style: italic;
+            min-height: 1.2em;
+        }
+
+
+        .modal-btn { padding: 0.75rem 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); background: var(--input-bg); cursor: pointer; font-weight: 600; }
+        .modal-btn.primary { background: var(--accent-color); color: white; border-color: var(--accent-color); }
+        
+        /* Toggle Switch */
+        .toggle-switch { position: relative; display: inline-block; width: 42px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+        .toggle-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .toggle-slider { background-color: var(--success-color); }
+        input:checked + .toggle-slider:before { transform: translateX(18px); }
+        
+        #processing-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: var(--bg-color); display: none; align-items: center; justify-content: center;
+            flex-direction: column; z-index: 9998; opacity: 0; transition: opacity 0.3s ease;
+        }
+        #processing-overlay.visible { display: flex; opacity: 1; }
+        .processing-wave { display: flex; justify-content: center; align-items: center; width: 120px; height: 60px; }
+        .processing-wave .dot {
+            width: 12px; height: 12px; margin: 0 4px; background: var(--accent-color); border-radius: 50%;
+            animation: wave 1.5s infinite ease-in-out;
+        }
+        .processing-wave .dot:nth-child(1) { animation-delay: 0s; }
+        .processing-wave .dot:nth-child(2) { animation-delay: 0.15s; }
+        .processing-wave .dot:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes wave { 0%, 100% { transform: translateY(0); opacity: 0.7; } 50% { transform: translateY(-20px); opacity: 1; } }
+
+        @media (max-width: 1024px) {
+            body {
+                height: auto;
+                overflow: auto;
+            }
+            .main-container { flex-direction: column; height: auto; min-height: 100vh; padding-bottom: 5rem; }
+            .panel-handle { bottom: 1.5rem; top: auto; transform: none; border-radius: 50%; width: 48px; height: 48px; }
+            #history-toggle-btn { left: 1.5rem; } #right-panel-toggle-btn { right: 1.5rem; }
+            #history-panel, #right-panel { position: fixed; top: 0; bottom: 0; width: 85vw; border-radius: 0; z-index: 100; height: 100%; }
+            #history-panel { left: -100%; transition: left 0.3s; } 
+            body.left-panel-open #history-panel { left: 0; }
+            #right-panel { right: -100%; transition: right 0.3s; } 
+            body.right-panel-open #right-panel { right: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        
+        <button id="history-toggle-btn" class="panel-handle" aria-label="Toggle history panel" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18l6-6-6-6"/>
+            </svg>
+        </button>
+        <button id="right-panel-toggle-btn" class="panel-handle" aria-label="Toggle insights panel" aria-expanded="false">
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 18l-6-6 6-6"/>
+            </svg>
+        </button>
+
+        <div id="panel-overlay"></div>
+        
+        <div class="top-right-controls">
+            <div class="top-right-group compact">
+                <button id="dark-mode-toggle" class="top-right-btn" aria-label="Toggle dark mode">🌙</button> 
+                <button id="mic-fab" class="top-right-btn" aria-label="Start or stop recording">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zM17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
+                </button>
+                <button id="stop-fab" class="top-right-btn" style="display: none;" aria-label="Stop playback">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M6 6h12v12H6z"></path></svg>
+                </button>
+                <button id="voice-settings-toggle" class="top-right-btn" aria-label="Voice settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 9v6h4l5 5V4l-5 5H7z"></path></svg>
+                </button>
+            </div>
+            <div class="top-right-group">
+                 <span id="auto-save-status" class="top-right-status" aria-live="polite"></span>
+                 <label class="toggle-switch small">
+                    <input type="checkbox" id="save-session-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div id="history-panel" class="collapsed">
+            <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                History
+            </h3>
+            <div id="history-filter-controls">
+                <div id="history-search-wrapper">
+                    <input type="search" id="history-search-input" placeholder="Search sessions...">
+                </div>
+                <div id="history-category-filters"></div>
+                <button id="category-trash-btn" aria-label="Drag a category here to delete">🗑️</button>
+            </div>
+            <div id="history-list"></div>
+            <div id="history-footer">
+                <button id="download-all-btn" class="panel-btn">Download All</button>
+                <button id="clear-history-btn" class="panel-btn" style="color: var(--danger-color);">Clear All</button>
+            </div>
+        </div>
+        
+        <div class="glass-card">
+            <div id="center-toggle-controls">
+                <button id="controls-toggle-btn">🔼</button>
+            </div>
+            <div id="top-controls-wrapper"> 
+                <div id="input-methods">
+                    <div class="input-group">
+                        <textarea id="text-input" rows="4" placeholder="Paste text here... Press Enter to process."></textarea>
+                         <div id="waveContainer" class="wave">
+                            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tts-controls" style="display: none;"> 
+                    <div class="tts-group"><label for="auto-pronounce-toggle">Auto-Pronounce:</label><input type="checkbox" id="auto-pronounce-toggle" /></div>
+                    <div class="tts-group"><label for="repeat-count-selector">Repeat:</label><select id="repeat-count-selector"><option value="1">x1</option><option value="10">x10</option><option value="20">x20</option><option value="50">x50</option></select></div>
+                    <div class="tts-group"><label for="voice-selector">Voice:</label><select id="voice-selector"></select></div>
+                    <div class="tts-group"><label for="speed-slider">Speed:</label><input type="range" id="speed-slider" min="0.5" max="1.5" step="0.1" value="0.9"></div>
+                </div>
+            </div>
+
+            <div id="finalOutput"></div>
+        </div> 
+        
+        <div id="right-panel" class="collapsed">
+            <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Tools
+            </h3>
+            <div id="right-panel-content">
+                <div id="session-controls">
+                    <button id="summary-fab" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 15v4H5v-4h14m1-2H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2zM12 3L4 9v4h16V9l-8-6z"></path></svg>
+                        <span>Summary</span>
+                    </button>
+                    <button id="download-fab" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"></path></svg>
+                        <span>Download</span>
+                    </button>
+                    <button id="play-all-fab" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M8 5v14l11-7z"></path></svg>
+                        <span>Play All</span>
+                    </button>
+                    <button id="play-char-list-fab" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"></path></svg>
+                        <span>Play List</span>
+                    </button>
+                </div>
+                
+                <div id="flashcard-controls" class="panel-section">
+                    <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 5H3V3h4v2zm0 8H3v-2h4v2zm0 8H3v-2h4v2zm4-4h10v-2H11v2zm0-8h10V7H11v2zm0-8h10V3H11v2z"></path></svg>
+                        <span>Select All Chars</span>
+                    </button>
+                    <button id="flashcard-btn" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.5 15.5c-1.1 0-2 .9-2 2v2c0 1.1-.9 2-2 2h-12c-1.1 0-2-.9-2-2v-12c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v2c0 1.1.9 2 2 2s2-.9 2-2V5.5c0-2.2-1.8-4-4-4h-12c-2.2 0-4 1.8-4 4v12c0 2.2 1.8 4 4 4h12c2.2 0 4-1.8 4-4V17.5c0-1.1-.9-2-2-2zM20 9.5c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2z"></path></svg>
+                        <span>Flashcards</span>
+                    </button>
+                    <button id="flashcard-game-btn" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M16.5 9l-1.5-1.5-3 3-3-3L7.5 9l3 3-3 3 1.5 1.5 3-3 3 3 1.5-1.5-3-3 3-3zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path></svg>
+                        <span>Game Mode</span>
+                    </button>
+                </div>
+
+                <div id="radicals-controls" class="panel-section">
+                    <button id="radicals-btn" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.6 6.3c-.4-.4-1-.4-1.4 0L18 8.6V7c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v1.6L9.8 6.3c-.4-.4-1-.4-1.4 0l-7 7c-.4.4-.4 1 0 1.4l7 7c.4.4 1 .4 1.4 0L12 19.4V21c0 1.1.9 2 2 2h2c1.1 0 2-.9 2-2v-1.6l2.2 2.2c.4.4 1 .4 1.4 0l7-7c.4-.4.4-1 0-1.4l-7-7zM16 9c-1.7 0-3-1.3-3-3s1.3-3 3-3 3 1.3 3 3-1.3 3-3 3z"></path></svg>
+                        <span>Radicals & Mnemonics</span>
+                    </button>
+                </div>
+
+                <div id="radicals-panel" class="panel-section collapsed" style="display: none;">
+                    <h4 id="radicals-title" class="panel-title">Radicals & Mnemonics</h4>
+                    <div id="radicals-char-list" class="char-selector-grid"></div>
+                    <div id="radicals-output"></div>
+                </div>
+
+                <div id="layout-controls" class="panel-section">
+                    <h4 class="panel-title">Layout</h4>
+                    <button id="reset-panels-btn" class="panel-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
+                        <span>Reset Panel Widths</span>
+                    </button>
+                </div>
+
+                <div class="panel-section">
+                    <h4 class="panel-title">Display Options</h4>
+                    <div class="settings-group">
+                        <div class="setting-item">
+                            <label for="hide-play-buttons-toggle">Hide Play Buttons</label>
+                            <label class="switch">
+                                <input type="checkbox" id="hide-play-buttons-toggle" checked>
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label for="hide-punctuation-toggle">Hide Punctuation</label>
+                            <label class="switch">
+                                <input type="checkbox" id="hide-punctuation-toggle" checked>
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="enhance-controls" class="panel-section">
+                    <button id="enhance-btn" class="panel-btn" style="display: none;">Enhance Definitions (AI)</button>
+                    <button id="revert-btn" class="panel-btn" style="display: none; background: #6c757d; color: white;">Revert to Dictionary</button>
+                </div>
+                
+                <div id="statsOutput" class="panel-section collapsed">
+                    <h3 id="stats-title" class="panel-title">Character Stats</h3>
+                    <div id="stats-content"></div>
+                </div>
+
+                <div id="global-stats-output" class="panel-section collapsed">
+                     <h3 id="global-stats-title" class="panel-title">Global Character Stats</h3>
+                     <div id="global-stats-content">
+                         <p class="info">Loading global stats...</p>
+                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="main-modal" class="main-modal">
+        <div id="modal-content">
+            <h3 id="modal-title"></h3>
+            <div id="modal-body"></div>
+            <button id="modal-close-btn" class="modal-btn">Close</button>
+        </div>
+    </div>
+
+    <div id="processing-overlay">
+        <div class="processing-wave">
+            <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+        <p style="margin-top: 20px; font-weight: 500;">Processing...</p>
+    </div>
+
+    <div id="flashcard-modal" style="display: none;">
+        <div id="flashcard-container">
+            <div id="flashcard-header">
+                <h3>Flashcards</h3>
+                <button id="flashcard-close-btn" aria-label="Close flashcards">×</button>
+            </div>
+            <div id="flashcard-main">
+                <aside id="deck-manager">
+                    <h4>My Decks</h4>
+                    <div id="deck-list"></div>
+                    <div id="deck-manager-actions">
+                        <button id="create-deck-btn" class="modal-btn">New Deck</button>
+                        <button id="delete-deck-btn" class="modal-btn" style="color: var(--danger-color);">Delete Deck</button>
+                    </div>
+                    <div id="deck-controls">
+                        <select id="flashcard-deck-selector" style="width: 100%; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.5rem; border: 1px solid var(--border-color);"></select>
+                        <button id="add-to-deck-btn" class="modal-btn primary" style="width: 100%; margin-bottom: 0.5rem;">Add (0) Selected</button>
+                        <button id="download-csv-btn" class="modal-btn" style="width: 100%;">Export CSV</button>
+                    </div>
+                </aside>
+
+                <section id="deck-details">
+                    <div class="panel-section" style="border: none; margin: 0; padding: 0;">
+                        <h4 class="panel-title" style="text-align: left;">Deck Summary</h4>
+                        <div id="deck-summary"><p class="info">Create or choose a deck to begin.</p></div>
+                    </div>
+                    <div class="panel-section">
+                        <h4 class="panel-title" style="text-align: left;">Cards in Deck</h4>
+                        <div id="deck-card-table" style="max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                    <div id="flashcard-settings" class="panel-section">
+                        <h4 class="panel-title" style="text-align: left;">Card Layout</h4>
+                        <div class="setting-row">
+                            <label>Front</label>
+                            <div id="flashcard-front-options" class="flashcard-face-options" style="display: flex; gap: 1rem;">
+                                <label><input type="checkbox" class="layout-checkbox" data-face="front" value="char"> Char</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="front" value="writing"> Writing</label>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <label>Back</label>
+                            <div id="flashcard-back-options" class="flashcard-face-options" style="display: flex; gap: 1rem;">
+                                <label><input type="checkbox" class="layout-checkbox" data-face="back" value="pinyin"> Pinyin</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="back" value="def"> Meaning</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="back" value="userMnemonic"> My Mnemonic</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="back" value="components"> Components</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="back" value="mnemonic"> Mnemonic</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="flashcard-test-options" class="panel-section">
+                        <h4 style="margin-bottom: 0.5rem;">Test Focus</h4>
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                            <label><input type="checkbox" class="test-mode-checkbox" data-mode="char" checked> Character</label>
+                            <label><input type="checkbox" class="test-mode-checkbox" data-mode="pinyin" checked> Pinyin</label>
+                            <label><input type="checkbox" class="test-mode-checkbox" data-mode="definition" checked> Meaning</label>
+                            <label><input type="checkbox" class="test-mode-checkbox" data-mode="writing"> Writing</label>
+                        </div>
+                    </div>
+                    <div id="deck-actions" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button id="start-study-btn" class="modal-btn primary" disabled>Study Deck</button>
+                        <button id="start-test-btn" class="modal-btn" disabled style="background: var(--success-color); color: white;">Test Deck</button>
+                        <button id="review-due-btn" class="modal-btn" disabled>Due Only</button>
+                        <button id="reset-stats-btn" class="modal-btn" disabled style="color: var(--danger-color);">Reset Progress</button>
+                    </div>
+                </section>
+
+                <section id="flashcard-viewer" style="display: none; height: 100%; flex-direction: column;">
+                    <div id="flashcard-progress" style="display: flex; justify-content: space-between; padding-bottom: 0.5rem;">
+                        <span id="flashcard-counter">1 / 1</span>
+                        <span id="flashcard-due-indicator"></span>
+                    </div>
+                    <div id="flashcard">
+                        <div class="flashcard-inner">
+                            <div id="flashcard-front" class="flashcard-face"></div>
+                            <div id="flashcard-back" class="flashcard-face"></div>
+                        </div>
+                    </div>
+                    <div id="flashcard-nav">
+                        <button id="flashcard-prev-btn" class="study-nav">Prev</button>
+                        <button id="flashcard-flip-btn">Flip Card</button>
+                        <button id="flashcard-ai-btn" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v2h-2zm0 4h2v6h-2z"></path></svg>
+                            <span>AI Insight</span>
+                        </button>
+                        <button id="flashcard-next-btn" class="study-nav">Next</button>
+                    </div>
+                    <div id="flashcard-test-controls">
+                        <button id="test-wrong-btn" class="danger">❌ Wrong</button>
+                        <button id="test-skip-btn" class="neutral">⏭️ Skip</button>
+                        <button id="test-right-btn" class="success">✅ Right</button>
+                    </div>
+                    <div id="flashcard-feedback" style="text-align: center; margin-top: 0.5rem; min-height: 1.5rem;"></div>
+                    <div id="test-score" style="display: none; text-align: center; font-weight: bold;"></div>
+                    <div id="flashcard-viewer-actions" style="margin-top: auto;">
+                        <button id="back-to-decks-btn" style="display: none; width: 100%; padding: 0.75rem; border-radius: 12px; background: var(--text-secondary); color: white; border: none;">Back to Deck</button>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div id="session-edit-modal" class="main-modal">
+        <div id="session-edit-content" class="modal-content">
+            <h3 id="session-edit-title">Edit Session</h3>
+            <div id="session-edit-body" style="text-align: left; display: flex; flex-direction: column; gap: 1rem;">
+                <label for="session-name-input" style="font-weight: 600;">Session Name</label>
+                <input type="text" id="session-name-input" placeholder="Enter a name..." style="width: 100%; padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg);">
+                <label style="font-weight: 600;">Categories</label>
+                <div id="session-categories-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;"></div>
+            </div>
+            <div id="session-edit-actions" class="modal-actions">
+                <button id="session-edit-cancel-btn" class="modal-btn">Cancel</button>
+                <button id="session-edit-save-btn" class="modal-btn primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mnemonic-modal" class="main-modal">
+        <div id="mnemonic-modal-content" class="modal-content">
+            <h3 id="mnemonic-modal-title">Your Mnemonic</h3>
+            <div id="mnemonic-modal-body">
+                <textarea id="mnemonic-input" rows="6" placeholder="Enter your personal mnemonic here..." style="width: 100%; padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); resize: none;"></textarea>
+            </div>
+            <div id="mnemonic-modal-actions" class="modal-actions">
+                <button id="mnemonic-cancel-btn" class="modal-btn">Cancel</button>
+                <button id="mnemonic-save-btn" class="modal-btn primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="char-info-modal" class="main-modal">
+        <div id="char-info-modal-content" class="modal-content" style="max-width: 600px; text-align: left;">
+            <h3 id="char-info-modal-title">Edit Character Info</h3>
+            <div id="char-info-modal-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="char-info-char">Character</label>
+                    <input type="text" id="char-info-char" readonly style="background: var(--panel-bg);">
+                </div>
+                <div class="form-group">
+                    <label for="char-info-pinyin">Pinyin</label>
+                    <input type="text" id="char-info-pinyin" placeholder="e.g., xiào">
+                </div>
+                <div class="form-group">
+                    <label for="char-info-meaning">Meaning</label>
+                    <input type="text" id="char-info-meaning" placeholder="e.g., school">
+                </div>
+                <div class="form-group">
+                    <label for="char-info-radical">Radical</label>
+                    <input type="text" id="char-info-radical" placeholder="e.g., 木">
+                </div>
+                <div class="form-group full-width">
+                    <label for="char-info-strokes">Strokes</label>
+                    <input type="number" id="char-info-strokes" placeholder="e.g., 10">
+                </div>
+                <div class="form-group full-width">
+                    <label for="char-info-eq">Equation</label>
+                    <textarea id="char-info-eq" placeholder="e.g., 木 + 交"></textarea>
+                </div>
+                <div class="form-group full-width">
+                    <label for="char-info-mnemonic">Mnemonic</label>
+                    <textarea id="char-info-mnemonic" placeholder="Enter your memory aid..."></textarea>
+                </div>
+            </div>
+            <div id="char-info-modal-actions" class="modal-actions">
+                <button id="char-info-cancel-btn" class="modal-btn">Cancel</button>
+                <button id="char-info-save-back-btn" class="modal-btn primary" style="display: none;">Save & Back</button>
+                <button id="char-info-save-btn" class="modal-btn primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Defer loading of scripts to prevent render-blocking -->
+    <script defer src="https://unpkg.com/pinyin-pro"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/umd/segmentit.min.js"></script>
+    <script defer src="app.js"></script>
+
+</body>
+</html>
