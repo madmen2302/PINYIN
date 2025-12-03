@@ -1,5 +1,5 @@
 // ======== latest ========
-const backendUrl = 'https://pinyin.namm.xyz:8443'; // <-- ADD THIS LINE
+const backendUrl = 'http://localhost:3000'; // <-- CHANGE FOR LOCAL TESTING
 
 // === SVG ICONS ===Global Character Stats
 const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"></path></svg>`;
@@ -3579,18 +3579,29 @@ async function saveCharInfoFromModal() {
     const saveBtn = document.getElementById('char-info-save-btn');
     const originalBtnText = saveBtn.textContent;
 
+    const strokesValue = document.getElementById('char-info-strokes').value.trim();
     const updatedInfo = {
         pinyin: document.getElementById('char-info-pinyin').value.trim(),
         meaning: document.getElementById('char-info-meaning').value.trim(),
         radical: document.getElementById('char-info-radical').value.trim(),
-        strokes: document.getElementById('char-info-strokes').value.trim(),
+        strokes: strokesValue ? parseInt(strokesValue, 10) : null,
         equation: document.getElementById('char-info-eq').value.trim(),
         mnemonic: document.getElementById('char-info-mnemonic').value.trim(),
     };
+    
+    // Clean up null/empty values to avoid sending invalid data
+    Object.keys(updatedInfo).forEach(key => {
+        if (updatedInfo[key] === null || updatedInfo[key] === '' || Number.isNaN(updatedInfo[key])) {
+            delete updatedInfo[key];
+        }
+    });
+
 
     // Update the in-memory database
     if (!customDbData) customDbData = {};
-    customDbData[activeEditChar] = updatedInfo;
+    if (!customDbData[activeEditChar]) customDbData[activeEditChar] = {};
+    customDbData[activeEditChar] = { ...customDbData[activeEditChar], ...updatedInfo };
+
 
     // --- NEW: Save to server ---
     saveBtn.textContent = 'Saving...';
