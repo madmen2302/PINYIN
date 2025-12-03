@@ -3,8 +3,11 @@ const backendUrl = 'https://pinyin.namm.xyz:8443'; // <-- ADD THIS LINE
 
 // === SVG ICONS ===Global Character Stats
 const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"></path></svg>`;
-const playIconSmall = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"></path></svg>`;
-const chevronIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path></svg>`; // === NEW ===
+const chevronDownIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`;
+const chevronUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>`;
+const historyIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg>`;
+const toolsIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84 c-0.24,0-0.44,0.17-0.48,0.41L9.2,5.77C8.61,6.01,8.08,6.33,7.58,6.71L5.19,5.75C4.97,5.68,4.72,5.75,4.6,5.97L2.68,9.29 c-0.11,0.2-0.06,0.47,0.12,0.61l2.03,1.58C4.78,11.7,4.76,12,4.76,12.3c0,0.3,0.02,0.6,0.06,0.9l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.04,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.48-0.41l0.36-2.54c0.59-0.24,1.12-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0.01,0.59-0.22l1.92-3.32c0.11-0.2,0.06-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>`;
+const textInputIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>`;
 
 // ======== ELEMENTS ========
 const downloadAllBtn = document.getElementById('download-all-btn');
@@ -23,9 +26,13 @@ const clearHistoryBtn = document.getElementById('clear-history-btn');
 const historyCategoryFilters = document.getElementById('history-category-filters'); // === NEW ===
 const historySearchInput = document.getElementById('history-search-input'); // === NEW ===
 const historyPanel = document.getElementById('history-panel');
-const historyToggleBtn = document.getElementById('history-toggle-btn');
+const historyDragHandle = document.getElementById('history-drag-handle');
 const topControlsWrapper = document.getElementById('top-controls-wrapper');
-const controlsToggleBtn = document.getElementById('controls-toggle-btn');
+// Create the button dynamically instead of getting it from HTML
+const controlsToggleBtn = document.createElement('button');
+controlsToggleBtn.id = 'controls-toggle-btn';
+controlsToggleBtn.className = 'header-icon-btn';
+controlsToggleBtn.innerHTML = textInputIcon; // Give the button an icon
 const darkModeToggle = document.getElementById('dark-mode-toggle');
 const bars = document.querySelectorAll('.bar');
 const textInput = document.getElementById('text-input');
@@ -55,7 +62,7 @@ const globalStatsContent = document.getElementById('global-stats-content'); // =
 
 // === Right Panel Elements ===
 const rightPanel = document.getElementById('right-panel');
-const rightPanelToggleBtn = document.getElementById('right-panel-toggle-btn');
+const rightPanelDragHandle = document.getElementById('right-panel-drag-handle');
 const voiceSettingsToggle = document.getElementById('voice-settings-toggle');
 const panelOverlay = document.getElementById('panel-overlay');
 
@@ -356,6 +363,7 @@ async function loadDictionaryAndLibs() {
         setupDarkMode();
         loadUserPreferences();
         loadPanelWidths(); // === NEW ===
+        initializeToggles(); // === NEW ===
 
         // === NEW: Character Info Edit Modal Listeners ===
         // This ensures the buttons on the edit pop-up are functional.
@@ -395,75 +403,35 @@ micFab.addEventListener('click', () => {
     }
 });
 
-textInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        let text = textInput.value.trim();
-        if (!text) return;
-        if (!dictionary || !segmentit) return;
-        text = text.replace(/\n/g, '。');
-        processingOverlay.classList.add('visible');
-        statsContent.innerHTML = "";
-        processTranscription(text);
-        textInput.value = "";
-    }
-});
-
 const stopFab = document.getElementById('stop-fab');
 stopFab.addEventListener('click', stopAllAudio);
 
-historyToggleBtn.addEventListener('click', () => toggleHistoryPanel());
+if (textInput) {
+    textInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            let text = textInput.value.trim();
+            if (!text) return;
+            if (!dictionary || !segmentit) return;
+            text = text.replace(/\n/g, '。');
+            processingOverlay.classList.add('visible');
+            statsContent.innerHTML = "";
+            processTranscription(text);
+            textInput.value = "";
+        }
+    });
+}
 
 controlsToggleBtn.addEventListener('click', () => {
-    if (topControlsWrapper.classList.contains('hidden')) {
-        topControlsWrapper.classList.remove('hidden');
-        ttsControls.style.display = 'none'; // Keep TTS hidden
-        document.getElementById('input-methods').style.display = 'flex';
-        controlsToggleBtn.innerHTML = chevronIcon; // === MODIFIED ===
-        controlsToggleBtn.classList.add('open'); // === MODIFIED ===
-    } else {
-        topControlsWrapper.classList.add('hidden');
-        controlsToggleBtn.innerHTML = chevronIcon; // === MODIFIED ===
-        controlsToggleBtn.classList.remove('open'); // === MODIFIED ===
-    }
+    // NEW LOGIC: Just toggle the text input wrapper
+    const isHidden = topControlsWrapper.classList.toggle('hidden');
+    controlsToggleBtn.classList.toggle('active', !isHidden);
 });
 
-playAllFab.addEventListener('click', playAllCharacters);
-playCharListFab.addEventListener('click', playCharList); // === NEW ===
-enhanceBtn.addEventListener('click', enhanceDefinitions);
-revertBtn.addEventListener('click', revertDefinitions);
-downloadFab.addEventListener('click', downloadOutput);
-downloadAllBtn.addEventListener('click', downloadAllOutput);
-clearHistoryBtn.addEventListener('click', () => clearHistory());
-document.addEventListener('keydown', handleKeyboardNavigation);
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         toggleHistoryPanel(false);
         toggleRightPanel(false);
-    }
-});
-
-// === NEW: Click empty space to toggle panels ===
-document.body.addEventListener('click', (e) => {
-    // Ignore clicks on interactive elements, modals, or the panels themselves
-    if (e.target.closest('button, a, input, select, textarea, .glass-card, #history-panel, #right-panel, #main-modal, #fab-container, #panel-overlay')) {
-        return;
-    }
-
-    // Ignore if a panel is already open on mobile, as the overlay handles it
-    if (viewportQuery.matches && (document.body.classList.contains('left-panel-open') || document.body.classList.contains('right-panel-open'))) {
-        return;
-    }
-
-    const mainContent = document.querySelector('.main-container .glass-card');
-    if (!mainContent) return;
-
-    const contentRect = mainContent.getBoundingClientRect();
-
-    if (e.clientX < contentRect.left) {
-        toggleHistoryPanel();
-    } else if (e.clientX > contentRect.right) {
-        toggleRightPanel();
     }
 });
 
@@ -484,11 +452,7 @@ function handleViewportChange(e) {
     const isMobile = e.matches;
     document.body.classList.toggle('mobile-layout', isMobile);
     if (!isMobile) {
-        toggleHistoryPanel(false);
-        toggleRightPanel(false);
     }
-    if (historyToggleBtn) historyToggleBtn.setAttribute('aria-expanded', String(document.body.classList.contains('left-panel-open')));
-    if (rightPanelToggleBtn) rightPanelToggleBtn.setAttribute('aria-expanded', String(document.body.classList.contains('right-panel-open')));
 }
 
 modal.addEventListener('click', closeHanziModal);
@@ -497,20 +461,15 @@ modalCloseBtn.addEventListener('click', closeHanziModal);
 
 summaryFab.addEventListener('click', () => {
     statsOutput.classList.add('collapsed');
-    globalStatsOutput.classList.add('collapsed'); // Also collapse global stats
+    globalStatsOutput.classList.add('collapsed');
     topControlsWrapper.classList.add('hidden');
-    controlsToggleBtn.innerHTML = chevronIcon; // === MODIFIED ===
-    controlsToggleBtn.classList.remove('open'); // === MODIFIED ===
-    controlsState = 'hidden';
+    controlsToggleBtn.classList.remove('active');
 
     const summaryEl = finalOutput.querySelector('.char-list-summary') || finalOutput.querySelector('.full-paragraph-output');
     if (summaryEl) {
         summaryEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 });
-
-// === NEW: Right Panel Toggle ===
-rightPanelToggleBtn.addEventListener('click', () => toggleRightPanel());
 
 // === NEW: Voice Settings Toggle ===
 voiceSettingsToggle.addEventListener('click', () => {
@@ -596,26 +555,19 @@ testWrongBtn.addEventListener('click', () => recordTestAnswer(false));
 testSkipBtn.addEventListener('click', skipCurrentCard);
 downloadCsvBtn.addEventListener('click', downloadDeckAsCsv);
 
-setupPanelDrag(historyToggleBtn, 'history');
-setupPanelDrag(rightPanelToggleBtn, 'right');
 
 function toggleHistoryPanel(forceOpen) {
     if (!historyPanel) return;
     const targetState = typeof forceOpen === 'boolean' ? forceOpen : historyPanel.classList.contains('collapsed');
-    document.body.classList.toggle('left-panel-open', targetState);
-    if (historyToggleBtn) historyToggleBtn.setAttribute('aria-expanded', String(targetState));
-    if (targetState && viewportQuery.matches) {
-        toggleRightPanel(false);
-    }
     historyPanel.classList.toggle('collapsed', !targetState);
+    document.body.classList.toggle('left-panel-open', targetState);
+    if (targetState && viewportQuery.matches) toggleRightPanel(false);
 }
 
 function toggleRightPanel(forceOpen) {
     if (!rightPanel) return;
     const targetState = typeof forceOpen === 'boolean' ? forceOpen : rightPanel.classList.contains('collapsed');
-    rightPanel.classList.toggle('collapsed', !targetState);
     document.body.classList.toggle('right-panel-open', targetState);
-    if (rightPanelToggleBtn) rightPanelToggleBtn.setAttribute('aria-expanded', String(targetState));
     if (targetState && viewportQuery.matches) {
         toggleHistoryPanel(false);
     }
@@ -623,29 +575,35 @@ function toggleRightPanel(forceOpen) {
 }
 
 function setupPanelDrag(handle, target) {
-    if (!handle) return;
-    handle.addEventListener('pointerdown', (event) => {
-        const panelElement = target === 'history' ? historyPanel : rightPanel;
-        if (panelElement.classList.contains('collapsed')) {
-            // If the panel is collapsed, a click on the handle should just toggle it open.
-            // We don't initiate a drag in this case.
-            return;
-        }
+    const panelElement = target === 'history' ? historyPanel : rightPanel;
+    if (!handle || !panelElement) return;
+    const onPointerDown = (event) => {
+        // === NEW: Add toggle functionality on simple click ===
+        // We'll check on pointerup if it was a drag or a click.
+        // For now, just record the start time.
+        panelDragState.startTime = Date.now();
+        panelDragState.moved = false; // Flag to track movement
+        // =======================================================
 
-        event.preventDefault();
-        event.stopPropagation();
+        // Prevent click from propagating if panel is open, to avoid unintended behavior
+        if (!panelElement.classList.contains('collapsed')) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
 
         panelDragState.active = true;
         panelDragState.pointerId = event.pointerId;
-        panelDragState.startX = event.clientX; // Use clientX for screen-based position
+        panelDragState.startX = event.clientX;
         panelDragState.target = target;
         panelDragState.panelElement = panelElement;
         panelDragState.handleElement = handle;
         panelDragState.initialWidth = panelElement.offsetWidth;
-        
 
         try { handle.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
-    });
+
+    };
+
+    handle.addEventListener('pointerdown', onPointerDown);
 
     // Use document for move and up events to capture outside the handle
     document.addEventListener('pointermove', (event) => {
@@ -655,6 +613,7 @@ function setupPanelDrag(handle, target) {
         if (!document.body.classList.contains('resizing')) {
             document.body.classList.add('resizing');
             panelDragState.handleElement.classList.add('resizing');
+            panelDragState.moved = true; // It's a drag, not a click
         }
 
         const deltaX = event.clientX - panelDragState.startX;
@@ -671,11 +630,8 @@ function setupPanelDrag(handle, target) {
         const maxWidth = 600;
         newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
 
-        const variableName = panelDragState.target === 'history' ? '--left-panel-width' : '--right-panel-width';
+        const variableName = target === 'history' ? '--left-panel-width' : '--right-panel-width';
         document.documentElement.style.setProperty(variableName, `${newWidth}px`);
-
-        // We set the style property directly for instant feedback, not the CSS variable
-        // The CSS variable is used for positioning the handle correctly.
         panelDragState.panelElement.style.width = `${newWidth}px`; 
         // No transition during drag for responsiveness
         panelDragState.panelElement.style.transition = 'none';
@@ -684,6 +640,17 @@ function setupPanelDrag(handle, target) {
     ['pointerup', 'pointercancel'].forEach(evtName => {
         document.addEventListener(evtName, (event) => {
             if (panelDragState.pointerId !== event.pointerId) return;
+
+            // === NEW: Check if it was a click or a drag ===
+            const wasClick = !panelDragState.moved && (Date.now() - panelDragState.startTime < 200);
+            if (wasClick) {
+                if (panelDragState.target === 'history') {
+                    toggleHistoryPanel();
+                } else if (panelDragState.target === 'right') {
+                    toggleRightPanel();
+                }
+            }
+            // ===============================================
             finalizePanelDrag();
         });
     });
@@ -717,6 +684,68 @@ function finalizePanelDrag() {
     document.body.classList.remove('resizing');
 }
 
+function initializeToggles() {
+    const mainHeader = document.querySelector('.main-header');
+    if (!mainHeader) return;
+
+    mainHeader.innerHTML = ''; // Clear previous content
+
+    // --- Left Group ---
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'header-group left';
+
+    // Add the text input toggle button to the left group.
+    if (controlsToggleBtn) leftGroup.appendChild(controlsToggleBtn);
+
+    // Move existing top-right controls (like dark mode) into the left group
+    const topRights = document.querySelector('.top-right-controls');
+    if (topRights) {
+        // Convert .top-right-btn to .header-icon-btn for consistency
+        topRights.querySelectorAll('.top-right-btn').forEach(btn => {
+            btn.classList.remove('top-right-btn');
+            btn.classList.add('header-icon-btn');
+        });
+        // Move all children of top-right-controls into the new leftGroup
+        while (topRights.firstChild) {
+            leftGroup.appendChild(topRights.firstChild);
+        }
+        topRights.style.display = 'none'; // Hide the old container
+    }
+
+    const mobileHistoryBtn = document.createElement('button');
+    mobileHistoryBtn.id = 'mobile-history-toggle';
+    mobileHistoryBtn.className = 'header-icon-btn';
+    mobileHistoryBtn.innerHTML = historyIcon;
+    mobileHistoryBtn.ariaLabel = 'Toggle History Panel';
+    mobileHistoryBtn.addEventListener('click', () => toggleHistoryPanel());
+    leftGroup.appendChild(mobileHistoryBtn);
+    mainHeader.appendChild(leftGroup);
+
+    // --- Center Group ---
+    const centerGroup = document.createElement('div');
+    centerGroup.className = 'header-group center'; // This will now be empty, but we can leave it for future use.
+    mainHeader.appendChild(centerGroup);
+
+    // --- Right Group ---
+    const rightGroup = document.createElement('div');
+    rightGroup.className = 'header-group right';
+
+    const mobileToolsBtn = document.createElement('button');
+    mobileToolsBtn.id = 'mobile-tools-toggle';
+    mobileToolsBtn.className = 'header-icon-btn';
+    mobileToolsBtn.innerHTML = toolsIcon;
+    mobileToolsBtn.ariaLabel = 'Toggle Tools Panel';
+    mobileToolsBtn.addEventListener('click', () => toggleRightPanel());
+    // Add the tools button to the right group
+    rightGroup.appendChild(mobileToolsBtn);
+    mainHeader.appendChild(rightGroup);
+
+    mainHeader.style.display = 'flex'; // Make the header visible
+
+    // Setup desktop drag handles
+    setupPanelDrag(historyDragHandle, 'history');
+    setupPanelDrag(rightPanelDragHandle, 'right');
+}
 
 // === NEW: Radicals Listeners ===
 radicalsBtn.addEventListener('click', showRadicalsPanel);
@@ -747,6 +776,14 @@ globalStatsTitle.addEventListener('click', () => {
     }
 });
 
+playAllFab.addEventListener('click', playAllCharacters);
+playCharListFab.addEventListener('click', playCharList); // === NEW ===
+enhanceBtn.addEventListener('click', enhanceDefinitions);
+revertBtn.addEventListener('click', revertDefinitions);
+downloadFab.addEventListener('click', downloadOutput);
+downloadAllBtn.addEventListener('click', downloadAllOutput);
+clearHistoryBtn.addEventListener('click', () => clearHistory());
+document.addEventListener('keydown', handleKeyboardNavigation);
 if (historySearchInput) {
     historySearchInput.addEventListener('input', () => {
         renderHistory();
@@ -1105,10 +1142,8 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
 
         processingOverlay.classList.remove('visible');
         topControlsWrapper.classList.add('hidden');
-        controlsToggleBtn.innerHTML = chevronIcon; // === MODIFIED ===
-        controlsToggleBtn.classList.remove('open'); // === MODIFIED ===
-        controlsState = 'hidden';
         statsOutput.classList.add('collapsed');
+        controlsToggleBtn.classList.remove('active');
         globalStatsOutput.classList.add('collapsed'); 
 
     } catch (error) {
@@ -1118,7 +1153,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
     }
     controlsToggleBtn.style.display = 'block';
     playAllFab.style.display = 'flex';
-    playCharListFab.style.display = 'flex'; 
+    playCharListFab.style.display = 'flex';
     updateSelectedCount(); 
     populateRadicalCharList(); 
     flashcardBtn.style.display = 'flex'; 
@@ -1166,11 +1201,9 @@ function displaySession(sessionId) {
     playAllFab.style.display = 'flex';
     playCharListFab.style.display = 'flex'; // Show
     // stopFab is controlled by listeners
-    ttsControls.style.display = 'none'; // Hide TTS controls by default
+    if (ttsControls) ttsControls.style.display = 'none'; // Hide TTS controls by default
     topControlsWrapper.classList.remove('hidden'); // Show text input
-    controlsToggleBtn.innerHTML = chevronIcon; // === MODIFIED ===
-    controlsToggleBtn.classList.add('open'); // === MODIFIED ===
-    controlsState = 'basic'; // Change default state
+    controlsToggleBtn.classList.add('active');
     updateSelectedCount(); // === NEW ===
     populateRadicalCharList(); // === NEW ===
     flashcardBtn.style.display = 'flex'; // === NEW ===
@@ -1954,7 +1987,7 @@ function downloadOutput() {
         #finalOutput, #statsOutput, #global-stats-output { max-height: none; overflow-y: visible; }
         #top-controls-wrapper, #history-panel, #right-panel, #controls-toggle-btn, #dark-mode-toggle, #history-toggle-btn, #right-panel-toggle-btn, #enhance-controls, .top-right-controls, #center-toggle-controls,
         #fab-container { display: none !important; }
-        #statsOutput, #global-stats-output { height: auto; }
+        #statsOutput, #global-stats-output { height: auto; } .header-icon-btn { display: none; }
         #stats-title, #global-stats-title { text-align: center; font-size: 1.1rem; padding: 0.5rem; margin: 0; }
         #stats-content, #global-stats-content { margin-top: 1rem; }
         /* UPDATED char list styles for download */
@@ -2096,7 +2129,7 @@ function downloadAllOutput() {
         #finalOutput, #statsOutput, #global-stats-output { max-height: none; overflow-y: visible; }
         #top-controls-wrapper, #history-panel, #right-panel, #controls-toggle-btn, #dark-mode-toggle, #history-toggle-btn, #right-panel-toggle-btn, #enhance-controls, .top-right-controls, #center-toggle-controls,
         #fab-container { display: none !important; }
-        .glass-card { height: auto; max-width: 900px; margin: 2rem auto; }
+        .glass-card { height: auto; max-width: 900px; margin: 2rem auto; } .header-icon-btn { display: none; }
         #statsOutput, #global-stats-output { height: auto; }
         #stats-title, #global-stats-title { text-align: center; font-size: 1.1rem; padding: 0.5rem; margin: 0; }
         #stats-content, #global-stats-content { margin-top: 1rem; }
