@@ -3130,8 +3130,31 @@ function downloadDeckAsCsv() {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Front,Back\n";
     deck.cards.forEach(card => {
-        const front = card.char.replace(/"/g, '""');
-        const back = `${card.pinyin}<br>${card.def.replace(/"/g, '""')}`;
+        // Front is always the character
+        const front = (card.char || '').replace(/"/g, '""');
+        
+        // Dynamically build the back content based on flashcardConfig.back
+        const backParts = flashcardConfig.back.map(type => {
+            let content = '';
+            switch (type) {
+                case 'pinyin':
+                    return card.pinyin || '';
+                case 'def':
+                    return card.def || '';
+                case 'userMnemonic':
+                    return userMnemonics[card.char] ? `My Mnemonic: ${userMnemonics[card.char]}` : '';
+                case 'components':
+                    return customDbData?.[card.char]?.equation ? ` ${customDbData[card.char].equation}` : '';
+                case 'mnemonic':
+                     return customDbData?.[card.char]?.mnemonic ? ` ${customDbData[card.char].mnemonic}` : '';
+                default:
+                    return '';
+            }
+        }).filter(Boolean); // Filter out empty strings
+
+        // Join the parts with a line break, and escape for CSV
+        const back = backParts.join('<br>.......................<br>').replace(/"/g, '""');
+
         csvContent += `"${front}","${back}"\n`;
     });
     const encodedUri = encodeURI(csvContent);
