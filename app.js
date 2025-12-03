@@ -1280,21 +1280,6 @@ async function animateCharacterList(characters) {
     animationModal.remove();
 }
 
-// === NEW: Play single line from character list ===
-window.playCharListLine = (charsString, buttonElement) => {
-    if (!charsString) return;
-    stopAllAudio();
-    const charsToPlay = charsString.split('').filter(char => chineseCharRegex.test(char));
-    if (charsToPlay.length === 0) return;
-
-    playCharListFab.classList.add('playing'); // Indicate activity on main button
-    if (soundStopFab) soundStopFab.classList.add('playing');
-    if (stopFab) stopFab.style.display = 'flex';
-    speechQueue = charsToPlay;
-    speakFromQueueWithHighlight(finalOutput.querySelector('.char-list-container')); // Scope to container
-}
-
-
 window.playSentenceWithHighlight = (sentence, buttonElement) => {
     const sentenceGroup = buttonElement.closest('.sentence-group');
     const chars = sentence.match(/[\u4e00-\u9fff]/g);
@@ -1889,31 +1874,19 @@ function truncateDefinition(text, wordLimit = 3) {
 function generateCharacterListHtml(chineseText) {
     if (!chineseText) return '';
 
-    let itemsHtml = '';
-    let lineChars = ''; // Keep track of chars in the current line for the play button
+    let itemsHtml = '';    
     let charCountSinceBreak = 0;
     const maxCharsBeforeBreakOnComma = 4;
     let currentLineHtml = ''; // Build line HTML
 
     const flushLine = (isLastLine = false) => {
-        if (lineChars) {
-            const escapedLineChars = lineChars.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-            // Add play button at the beginning of the line
-            itemsHtml += `<div class="char-list-line">
-                <span class="char-list-line-play" onclick="window.playCharListLine('${escapedLineChars}', this)">${playIconSmall}</span>
-                ${currentLineHtml}
-            </div>`;
+        if (currentLineHtml) {
+            itemsHtml += `<div class="char-list-line">${currentLineHtml}</div>`;
             if (!isLastLine) {
                 // itemsHtml += `<span class="char-list-break"></span>`; // Break is handled by flex-direction
             }
-        } else if (currentLineHtml) { // Handle lines with only punctuation
-            itemsHtml += `<div class="char-list-line">${currentLineHtml}</div>`;
-            if (!isLastLine) {
-                // itemsHtml += `<span class="char-list-break"></span>`;
-            }
         }
         currentLineHtml = '';
-        lineChars = '';
         charCountSinceBreak = 0;
     };
 
@@ -1926,8 +1899,7 @@ function generateCharacterListHtml(chineseText) {
             const shortDef = truncateDefinition(fullDef.split(';')[0].split('/')[0].replace(/\[.*?\]|\(.*?\)/g, '').trim());
             const escapedChar = char.replace(/'/g, "\\'").replace(/"/g, '&quot;');
             const escapedFullDef = fullDef.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            lineChars += char; // Add char to current line string
-
+            
             currentLineHtml += `<div class="char-list-item" data-char="${char}" data-pinyin="${pinyin}" data-def="${escapedFullDef}" onclick="toggleCardSelection(this, event)">
                 <div class="char-list-char" onclick="event.stopPropagation(); window.showStrokes('${escapedChar}')">${char}</div>
                 <div class="char-list-pinyin" onclick="event.stopPropagation(); window.requestSpeech('${escapedChar}')">${pinyin}</div>
@@ -1994,7 +1966,6 @@ function downloadOutput() {
         .char-list-pinyin { font-size: 0.75em; color: var(--text-secondary); cursor: pointer; margin-top: 0.1rem; }
         .char-list-english { font-size: 0.65em; color: var(--text-subtle); cursor: pointer; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50px; }
         .char-list-punctuation { font-size: 1.5em; color: var(--text-secondary); margin: 0 0.1rem; display: inline-flex; align-items: flex-end; padding-bottom: 0.1rem;}
-        .char-list-break { width: 100%; height: 0; margin: 0.1rem 0; display: block; }
         .char-list-line-play { display: none; } /* Hide play buttons in download */
     `;
     const content = activeSession.breakdownHtml;
@@ -2077,8 +2048,7 @@ function downloadOutput() {
 
             window.requestSpeech = (text) => { console.log('Speech requested for:', text); alert('Speech synthesis is not available in this downloaded file.'); }
             window.playSentenceWithHighlight = (text, el) => { console.log('Speech requested for:', text); alert('Speech synthesis is not available in this downloaded file.'); }
-            window.playCharListLine = (text, el) => { console.log('Speech requested for:', text); alert('Speech synthesis is not available in this downloaded file.'); }
-
+            
 
             modal.addEventListener('click', closeHanziModal);
             document.getElementById('modal-content').addEventListener('click', (e) => e.stopPropagation());
@@ -2139,7 +2109,6 @@ function downloadAllOutput() {
         .char-list-pinyin { font-size: 0.75em; color: var(--text-secondary); cursor: pointer; margin-top: 0.1rem; }
         .char-list-english { font-size: 0.65em; color: var(--text-subtle); cursor: pointer; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50px; }
         .char-list-punctuation { font-size: 1.5em; color: var(--text-secondary); margin: 0 0.1rem; display: inline-flex; align-items: flex-end; padding-bottom: 0.1rem;}
-        .char-list-break { width: 100%; height: 0; margin: 0.1rem 0; display: block; }
         .char-list-line-play { display: none; }
     `;
     const globalStats = calculateGlobalStats(); // Calculate once
@@ -2230,8 +2199,7 @@ function downloadAllOutput() {
 
             window.requestSpeech = (text) => { console.log('Speech requested for:', text); alert('Speech synthesis is not available in this downloaded file.'); }
             window.playSentenceWithHighlight = (text, el) => { console.log('Speech requested for:', text); alert('Speech synthesis is not available in this downloaded file.'); }
-            window.playCharListLine = (text, el) => { console.log('Speech requested for:', text); alert('Speech synthesis is not available in this downloaded file.'); }
-
+            
 
             modal.addEventListener('click', closeHanziModal);
             document.getElementById('modal-content').addEventListener('click', (e) => e.stopPropagation());
