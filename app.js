@@ -2412,6 +2412,11 @@ function showDeckManager() {
     deckManager.style.display = 'flex';
     if (deckDetails) deckDetails.style.display = 'flex';
     flashcardModal.classList.remove('fullscreen-view');
+    flashcardEl.style.width = ''; // Reset game mode size override
+    flashcardEl.style.height = ''; // Reset game mode size override
+    // Reset button display when exiting game mode
+    flashcardAiBtn.style.display = ''; 
+    flashcardFlipBtn.style.display = ''; 
     flashcardViewer.style.display = 'none';
     backToDecksBtn.style.display = 'none';
 }
@@ -2657,6 +2662,10 @@ function buildSessionCards(deck, options = {}) {
 }
 
 function startFlashcardGameMode() {
+    // NEW: Apply styles to make the flashcard smaller for game mode
+    flashcardEl.style.width = 'calc(0.8 * 70vh)'; // 80% of the default width
+    flashcardEl.style.height = 'calc(0.8 * 70vh)'; // 80% of the default height
+
     showFlashcardModal();
     startFlashcardSession('test', { dueOnly: true }, true);
 }
@@ -2691,14 +2700,19 @@ function startFlashcardSession(mode = 'study', options = {}) {
     flashcardViewer.style.display = 'flex';
     backToDecksBtn.style.display = 'inline-block';
     flashcardEl.classList.remove('flipped');
+    
+    // NEW: Check if it's the special game mode
+    const isGameMode = options.dueOnly === true;
+
     flashcardTestControls.style.display = mode === 'test' ? 'flex' : 'none';
     testSkipBtn.style.display = mode === 'test' ? 'inline-flex' : 'none';
-    flashcardAiBtn.style.display = 'flex';
-    
-    // Show/hide nav buttons based on mode
+    flashcardAiBtn.style.display = isGameMode ? 'none' : 'flex';
+    flashcardFlipBtn.style.display = isGameMode ? 'none' : 'flex';
+
     flashcardNav.querySelectorAll('.study-nav').forEach(btn => {
         btn.style.display = mode === 'study' ? 'flex' : 'none';
     });
+
     testScore.style.display = mode === 'test' ? 'block' : 'none';
     flashcardFeedback.textContent = mode === 'test'
         ? 'Answer each prompt, then mark it as right or wrong.'
@@ -2739,6 +2753,7 @@ async function showFlashcard(index) {
 async function renderCardFace(target, types, card, faceKey, token) {
     target.className = `flashcard-face`;
     target.innerHTML = '';
+    if (faceKey === 'back') target.classList.add('flashcard-face-back-detailed');
 
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'flashcard-content-wrapper'; // Use a class for styling
@@ -2802,30 +2817,34 @@ async function renderCardFace(target, types, card, faceKey, token) {
 
     // 3. Add Action Bar
     if (faceKey === 'back') {
-        const actionBar = document.createElement('div');
-        actionBar.className = 'flashcard-actions-bar';
-        const actions = [
-            { label: 'AI Insight', onclick: () => showFlashcardAiInsight() },
-            { label: 'Mnemonic', onclick: () => { showMnemonicModal(card.char, 'flashcard'); } },
-            { label: 'Practice', onclick: () => { 
-                showRadicalsPanel(); 
-                getRadicalInfo(card.char); 
-                setTimeout(() => {
-                    document.querySelector('.radical-practice-btn')?.click();
-                    document.getElementById('radicals-panel').scrollIntoView({behavior: 'smooth'});
-                }, 500);
-            }},
-            { label: 'Strokes', onclick: () => window.showStrokes(card.char) }
-        ];
+        const userMnemonic = userMnemonics[card.char];
+        const userMnemonicHtml = userMnemonic ? `<div class="radical-user-mnemonic"><span>Your Mnemonic:</span><p>${userMnemonic}</p></div>` : '';
+        const dbData = customDbData?.[card.char];
+        const dbExplanationHtml = dbData?.equation ? `<div class="radical-explanation"><span></span><p>${dbData.equation}</p></div>` : '';
+        const dbMnemonicHtml = dbData?.mnemonic ? `<div class="radical-mnemonic"><span></span><p>${dbData.mnemonic}</p></div>` : '';
 
-        actions.forEach(act => {
-            const btn = document.createElement('button');
-            btn.className = 'flashcard-action-btn';
-            btn.textContent = act.label;
-            btn.onclick = (e) => { e.stopPropagation(); act.onclick(); };
-            actionBar.appendChild(btn);
-        });
-        target.appendChild(actionBar);
+        // NEW: Restructured HTML for a cleaner look
+        const detailedHtml = `
+            <div class="flashcard-back-content">
+                <div class="flashcard-back-char" style="font-size: 200%; font-weight: bold;">${card.char}</div>
+                <div class="flashcard-back-details">
+                    <div class="radical-pinyin">${card.pinyin || ''}</div>
+                    <div class="radical-def">${card.def || ''}</div>
+                    ${userMnemonicHtml}
+                    <div class="radical-ai">
+                        ${dbExplanationHtml}
+                        ${dbMnemonicHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+        contentWrapper.innerHTML = detailedHtml;
+
+        // If no DB data, fetch from AI
+        if (!dbData) {
+            // The `true` argument tells the function to render the insight directly into the card
+            showFlashcardAiInsight(true); 
+        }
     }
 }
 
@@ -2991,12 +3010,21 @@ async function fetchMnemonic(card) {
     return data.mnemonic || 'Mnemonic not found.';
 }
 
-async function showFlashcardAiInsight() {
-    if (!currentTestSession) return;
-    const card = currentTestSession.cards[currentFlashcardIndex];
+async function showFlashcardAiInsight(renderInCard = false) {
+    const card = currentTestSession?.cards[currentFlashcardIndex];
     if (!card) return;
 
-    showModal(`AI Insight for ${card.char}`, `<p class="loading">Fetching insights...</p>`);
+    let targetElement;
+    if (renderInCard) {
+        targetElement = document.querySelector('#flashcard-back .radical-ai');
+        if (!targetElement) return;
+        targetElement.innerHTML = `
+            <div class="radical-explanation"><span>AI Insight:</span><p class="loading">Fetching guidance...</p></div>
+            <div class="radical-mnemonic"><span>Mnemonic:</span><p class="loading">Fetching memory aid...</p></div>
+        `;
+    } else {
+        showModal(`AI Insight for ${card.char}`, `<p class="loading">Fetching insights...</p>`);
+    }
 
     const userMnemonic = userMnemonics[card.char];
     const userMnemonicHtml = userMnemonic
@@ -3005,7 +3033,7 @@ async function showFlashcardAiInsight() {
 
     // === NEW: Check custom DB first (primary source) ===
     if (customDbData?.[card.char]) {
-        const local = customDbData[card.char];
+        const local = customDbData[card.char]; // This case is handled by renderCardFace, so this block is for the modal view.
         const insightHtml = `
             <div class="ai-insight-layout">
                 <div class="ai-insight-char">${card.char}</div>
@@ -3024,8 +3052,10 @@ async function showFlashcardAiInsight() {
                 </div>
             </div>
         `;
-        showModal(`AI Insight for ${card.char}`, insightHtml);
-        return; // Stop here, we found it in the custom DB
+        if (!renderInCard) {
+            showModal(`AI Insight for ${card.char}`, insightHtml);
+        }
+        return;
     }
 
     try {
@@ -3046,7 +3076,7 @@ async function showFlashcardAiInsight() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'AI API error');
         // Fallback to AI-generated content
-        const insightHtml = `
+        let insightHtml = `
             <div class="ai-insight-layout">
                 <div class="ai-insight-char">${card.char}</div>
                 <div class="ai-insight-content">
@@ -3063,10 +3093,22 @@ async function showFlashcardAiInsight() {
                 </button>
             </div>
         `;
-        showModal(`AI Insight for ${card.char}`, insightHtml);
+
+        if (renderInCard && targetElement) {
+            targetElement.innerHTML = `
+                <div class="radical-explanation"><span>AI Insight:</span><p>${data.explanation || 'No insight available.'}</p></div>
+                <div class="radical-mnemonic"><span>Mnemonic:</span><p>${data.mnemonic || 'No mnemonic available.'}</p></div>
+            `;
+        } else {
+            showModal(`AI Insight for ${card.char}`, insightHtml);
+        }
     } catch (error) {
         console.error('AI Insight fetch failed:', error);
-        showModal(`AI Insight for ${card.char}`, `<p class="error">Failed to fetch AI insight: ${error.message}</p>`);
+        if (renderInCard && targetElement) {
+            targetElement.innerHTML = `<p class="error">Failed to fetch AI insight: ${error.message}</p>`;
+        } else {
+            showModal(`AI Insight for ${card.char}`, `<p class="error">Failed to fetch AI insight: ${error.message}</p>`);
+        }
     }
 }
 
