@@ -1,5 +1,6 @@
 // ======== latest ========
-const backendUrl = 'http://localhost:3000'; // <-- CHANGE FOR LOCAL TESTING
+//const backendUrl = 'http://localhost:3000'; // <-- CHANGE FOR LOCAL TESTING
+const backendUrl = 'https://pinyin.namm.xyz:8443'; // <-- ADD THIS LINE
 
 // === SVG ICONS ===Global Character Stats
 const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"></path></svg>`;
