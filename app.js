@@ -161,6 +161,7 @@ let currentSessionId = null;
 let controlsState = 'hidden'; // 'hidden', 'basic', 'full'
 let autoSaveSessions = true;
 let temporarySession = null;
+let loopingChar = null; // To control the active animation loop
 let customDbData = null; // To hold your custom database
 let userMnemonics = {}; // === NEW ===
 let chaiziData = null; // === NEW: Replaced radicalData
@@ -1279,23 +1280,41 @@ async function animateCharacterList(characters) {
     // Create a dedicated host inside the modal for the writer.
     const writerHost = document.createElement('div');
     animationModal.appendChild(writerHost);
+    document.body.appendChild(animationModal);
+
+    let writer = null;
+    let isCancelled = false;
+
+    // This master cleanup function handles everything.
+    const cleanupAndRemove = () => {
+        isCancelled = true; // Signal to any ongoing loops to stop.
+        if (writer) {
+            writer.cleanup();
+            writer = null;
+        }
+        // Make sure the modal is still in the DOM before trying to remove it.
+        if (document.body.contains(animationModal)) {
+            animationModal.remove();
+        }
+    };
 
     // Close the modal if the background is clicked.
     animationModal.addEventListener('click', (e) => {
         if (e.target === animationModal) {
-            animationModal.remove();
+            cleanupAndRemove();
         }
     });
 
-    document.body.appendChild(animationModal);
-
     // The for...of loop with await correctly handles the sequence of promises.
     for (const char of characters) {
-        // The documentation shows creating a new writer instance for each animation.
-        // We will do this within the same host element.
+        // If the modal was closed while awaiting, break the loop.
+        if (isCancelled) {
+            break;
+        }
+
         writerHost.innerHTML = ''; // Clear the host for the new writer.
 
-        const writer = HanziWriter.create(writerHost, char, {
+        writer = HanziWriter.create(writerHost, char, {
             width: 200,
             height: 200,
             padding: 20,
@@ -1309,8 +1328,8 @@ async function animateCharacterList(characters) {
         await writer.animateCharacter();
     }
 
-    // Automatically close the modal after the last character has finished.
-    animationModal.remove();
+    // After the loop has finished (or was broken), do a final cleanup.
+    cleanupAndRemove();
 }
 
 window.playSentenceWithHighlight = (sentence, buttonElement) => {
@@ -1746,6 +1765,7 @@ function updateGlobalStatsDisplay() {
 
 
 function closeHanziModal() {
+    loopingChar = null; // Stop any animation loops
     modal.classList.remove('active');
     if (hanziWriter && typeof hanziWriter.cleanup === 'function') {
         hanziWriter.cleanup();
@@ -1756,6 +1776,7 @@ function closeHanziModal() {
 
 window.showStrokes = async (char) => {
     closeHanziModal();
+    loopingChar = char; // Set the current character for the animation loop
     modalCloseBtn.style.display = 'none'; // Hide the default close button
 
     // === NEW: Navigation logic ===
@@ -1864,10 +1885,12 @@ window.showStrokes = async (char) => {
     }
 
     function loopAnimation() {
-        if (hanziWriter) {
+        // Only loop if this is the currently active character animation
+        if (hanziWriter && loopingChar === char) {
             hanziWriter.animateCharacter({
                 onComplete: function() {
-                    if(hanziWriter) setTimeout(loopAnimation, 500);
+                    // Check again in case the user navigated while the animation was playing
+                    if(hanziWriter && loopingChar === char) setTimeout(loopAnimation, 500);
                 }
             });
         }
