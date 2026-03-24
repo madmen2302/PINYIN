@@ -86,7 +86,7 @@ app.post('/translate', async (req, res) => {
     
     if (!DEEPL_API_KEY) return res.status(500).json({ error: 'DeepL API key not configured on server.' });
 
-    const url = 'https://api.deepl.com/v2/translate';
+    const url = 'https://api-free.deepl.com/v2/translate';
     try {
         const deeplResponse = await fetch(url, {
             method: 'POST',
