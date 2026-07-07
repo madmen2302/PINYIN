@@ -261,6 +261,27 @@ function loadUserPreferences() {
     updateAutoSaveIndicator(document.body.classList.contains('has-temporary-session'));
 }
 
+// Wire up the "Hide Play Buttons" / "Hide Punctuation" display toggles.
+// These drive body classes (styled in index.html) and persist to localStorage.
+function setupDisplayPreferences() {
+    const prefs = [
+        { id: 'hide-play-buttons-toggle', cls: 'hide-play-buttons', key: 'hidePlayButtons' },
+        { id: 'hide-punctuation-toggle', cls: 'hide-punctuation', key: 'hidePunctuation' }
+    ];
+    prefs.forEach(({ id, cls, key }) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        let saved = false;
+        try { saved = localStorage.getItem(key) === 'true'; } catch (_) { /* ignore */ }
+        el.checked = saved;
+        document.body.classList.toggle(cls, saved);
+        el.addEventListener('change', () => {
+            document.body.classList.toggle(cls, el.checked);
+            try { localStorage.setItem(key, String(el.checked)); } catch (_) { /* ignore */ }
+        });
+    });
+}
+
 function loadUserMnemonics() {
     try {
         const saved = localStorage.getItem('userMnemonics');
@@ -319,16 +340,28 @@ function getCharDomId(char, prefix = 'char') {
     return `${prefix}-${codes.join('-')}`;
 }
 
+// Escape untrusted text (AI output, translations, user mnemonics, definitions)
+// before it is interpolated into innerHTML. Prevents both broken layout from a
+// stray "<" and script injection.
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // ======== INITIALIZATION ========
 loadDictionaryAndLibs();
 
 async function loadDictionaryAndLibs() {
     try {
         // === OPTIMIZATION: Fetch all initial data in parallel ===
-        const [dictResult, customDbResult, chaiziResult] = await Promise.allSettled([
+        const [dictResult, customDbResult] = await Promise.allSettled([
             fetch('./dictionary.json'),
-            fetch('./custom-db.json'),
-            fetch('https://cdn.jsdelivr.net/npm/hanzi-chaizi/chaizi.json')
+            fetch('./custom-db.json')
         ]);
 
         if (dictResult.status === 'fulfilled' && dictResult.value.ok) {
@@ -345,12 +378,8 @@ async function loadDictionaryAndLibs() {
             console.warn('⚠️ Could not load custom-db.json. The app will use other data sources.');
         }
 
-        if (chaiziResult.status === 'fulfilled' && chaiziResult.value.ok) {
-            chaiziData = await chaiziResult.value.json();
-            console.log('✅ hanzi-chaizi decomposition data loaded.');
-        } else {
-            console.warn('⚠️ Could not load hanzi-chaizi data.');
-        }
+        // Character decomposition now comes from the server's /character-data
+        // endpoint (backed by Make Me a Hanzi), so no separate client fetch.
         // ==========================================================
         segmentit = Segmentit.useDefault(new Segmentit.Segment());
         console.log('✅ Dictionary and Segmenter loaded.');
@@ -366,6 +395,7 @@ async function loadDictionaryAndLibs() {
         loadUserPreferences();
         loadPanelWidths(); // === NEW ===
         initializeToggles(); // === NEW ===
+        setupDisplayPreferences(); // Wire up Hide Play Buttons / Hide Punctuation
 
         // === NEW: Character Info Edit Modal Listeners ===
         // This ensures the buttons on the edit pop-up are functional.
@@ -927,7 +957,7 @@ async function processFullRecording() {
             await processTranscription(text, whisperResult.language);
         } else {
             processingOverlay.classList.remove('visible');
-            finalOutput.innerHTML = `<p class'info'>No speech detected.</p>`;
+            finalOutput.innerHTML = `<p class="info">No speech detected.</p>`;
         }
     } catch (error) {
         processingOverlay.classList.remove('visible');
@@ -1092,7 +1122,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
                 <div class="word-grid">${wordGridHtml}</div>
                 <div class="sentence-translation">
                     <span class="play-btn-svg" onclick="window.playSentenceWithHighlight('${escapedSentence}', this)">${playIcon}</span>
-                    <span>${sentenceTranslation}</span>
+                    <span>${escapeHtml(sentenceTranslation)}</span>
                 </div>
             </div>`;
         }
@@ -1103,7 +1133,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
         const finalPinyin = window.pinyinPro ? window.pinyinPro.pinyin(finalChineseText, { toneType: 'symbol' }) : '';
         
         const fullParagraphOutput = `<div class="full-paragraph-output">
-            <div class="final-english">${finalEnglishText}</div>
+            <div class="final-english">${escapeHtml(finalEnglishText)}</div>
             <div class="final-pinyin">${finalPinyin}</div>
             <div class="final-chinese">${finalChineseText} <span class="play-btn-svg" onclick="window.requestSpeech(this.parentElement.textContent.replace('▶️', '').trim())">${playIcon}</span></div>
         </div>`;
@@ -2184,7 +2214,7 @@ function downloadAllOutput() {
     }).join('');
 
     const htmlString = `
-        <!DOCTYPE html><html lang="en"><head><meta charset="UTF-ArcgB"><title>All Transcriptions</title>
+        <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>All Transcriptions</title>
         <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"><\/script>
         <style>${mainStyles} ${downloadSpecificStyles}<\/style>
         </head><body data-theme="${document.body.dataset.theme || 'light'}"><h1>All Saved Transcriptions</h1>${allSessionsHtml}
@@ -2799,7 +2829,7 @@ async function renderCardFace(target, types, card, faceKey, token) {
             if (userMnemonic) {
                 partEl.innerHTML = `
                     <div class="flashcard-part-label">Your Mnemonic</div>
-                    <p>${userMnemonic}</p>
+                    <p>${escapeHtml(userMnemonic)}</p>
                 `;
             }
         } else if (type === 'components' && customDbData?.[card.char]?.equation) {
@@ -2816,7 +2846,7 @@ async function renderCardFace(target, types, card, faceKey, token) {
         } else if (type === 'mnemonic' && customDbData?.[card.char]?.mnemonic) {
             partEl.innerHTML = `
                 <div class="flashcard-part-label">Mnemonic</div>
-                <p>${customDbData[card.char].mnemonic}</p>
+                <p>${escapeHtml(customDbData[card.char].mnemonic)}</p>
             `;
         } else if (type === 'writing') {
             const writerHost = document.createElement('div');
@@ -2842,18 +2872,18 @@ async function renderCardFace(target, types, card, faceKey, token) {
     // 3. Add Action Bar
     if (faceKey === 'back') {
         const userMnemonic = userMnemonics[card.char];
-        const userMnemonicHtml = userMnemonic ? `<div class="radical-user-mnemonic"><span>Your Mnemonic:</span><p>${userMnemonic}</p></div>` : '';
+        const userMnemonicHtml = userMnemonic ? `<div class="radical-user-mnemonic"><span>Your Mnemonic:</span><p>${escapeHtml(userMnemonic)}</p></div>` : '';
         const dbData = customDbData?.[card.char];
-        const dbExplanationHtml = dbData?.equation ? `<div class="radical-explanation"><span></span><p>${dbData.equation}</p></div>` : '';
-        const dbMnemonicHtml = dbData?.mnemonic ? `<div class="radical-mnemonic"><span></span><p>${dbData.mnemonic}</p></div>` : '';
+        const dbExplanationHtml = dbData?.equation ? `<div class="radical-explanation"><span></span><p>${escapeHtml(dbData.equation)}</p></div>` : '';
+        const dbMnemonicHtml = dbData?.mnemonic ? `<div class="radical-mnemonic"><span></span><p>${escapeHtml(dbData.mnemonic)}</p></div>` : '';
 
         // NEW: Restructured HTML for a cleaner look
         const detailedHtml = `
             <div class="flashcard-back-content">
                 <div class="flashcard-back-char" style="font-size: 200%; font-weight: bold;">${card.char}</div>
                 <div class="flashcard-back-details">
-                    <div class="radical-pinyin">${card.pinyin || ''}</div>
-                    <div class="radical-def">${card.def || ''}</div>
+                    <div class="radical-pinyin">${escapeHtml(card.pinyin || '')}</div>
+                    <div class="radical-def">${escapeHtml(card.def || '')}</div>
                     ${userMnemonicHtml}
                     <div class="radical-ai">
                         ${dbExplanationHtml}
@@ -3052,7 +3082,7 @@ async function showFlashcardAiInsight(renderInCard = false) {
 
     const userMnemonic = userMnemonics[card.char];
     const userMnemonicHtml = userMnemonic
-        ? `<h4>Your Mnemonic</h4><p>${userMnemonic}</p>`
+        ? `<h4>Your Mnemonic</h4><p>${escapeHtml(userMnemonic)}</p>`
         : '';
 
     // === NEW: Check custom DB first (primary source) ===
@@ -3064,9 +3094,9 @@ async function showFlashcardAiInsight(renderInCard = false) {
                 <div class="ai-insight-content">
                     ${userMnemonicHtml}
                     <h4>Explanation (from Your DB)</h4>
-                    <p>${local.equation || 'No explanation available.'}</p>
+                    <p>${escapeHtml(local.equation) || 'No explanation available.'}</p>
                     <h4>Mnemonic (from Your DB)</h4>
-                    <p>${local.mnemonic || 'No mnemonic available.'}</p>
+                    <p>${escapeHtml(local.mnemonic) || 'No mnemonic available.'}</p>
                 </div>
             </div>
             <div class="modal-actions">
@@ -3106,9 +3136,9 @@ async function showFlashcardAiInsight(renderInCard = false) {
                 <div class="ai-insight-content">
                     ${userMnemonicHtml}
                     <h4>Explanation</h4>
-                    <p>${data.explanation || 'No explanation available.'}</p>
+                    <p>${escapeHtml(data.explanation) || 'No explanation available.'}</p>
                     <h4>Mnemonic</h4>
-                    <p>${data.mnemonic || 'No mnemonic available.'}</p>
+                    <p>${escapeHtml(data.mnemonic) || 'No mnemonic available.'}</p>
                 </div>
             </div>
             <div class="modal-actions">
@@ -3120,8 +3150,8 @@ async function showFlashcardAiInsight(renderInCard = false) {
 
         if (renderInCard && targetElement) {
             targetElement.innerHTML = `
-                <div class="radical-explanation"><span>AI Insight:</span><p>${data.explanation || 'No insight available.'}</p></div>
-                <div class="radical-mnemonic"><span>Mnemonic:</span><p>${data.mnemonic || 'No mnemonic available.'}</p></div>
+                <div class="radical-explanation"><span>AI Insight:</span><p>${escapeHtml(data.explanation) || 'No insight available.'}</p></div>
+                <div class="radical-mnemonic"><span>Mnemonic:</span><p>${escapeHtml(data.mnemonic) || 'No mnemonic available.'}</p></div>
             `;
         } else {
             showModal(`AI Insight for ${card.char}`, insightHtml);
@@ -3332,10 +3362,6 @@ async function fetchCharacterMetadata(char) {
         console.warn('Character metadata fetch failed:', error.message);
     }
 
-    // === NEW: Use chaiziData as the primary source for components ===
-    if (chaiziData && chaiziData[char]) {
-        payload.components = chaiziData[char];
-    }
     characterMetadataCache.set(char, payload);
     return payload;
 }
@@ -3384,7 +3410,7 @@ async function getRadicalInfo(char, isBack = false) {
     const userMnemonicHtml = userMnemonic
         ? `<div class="radical-user-mnemonic">
                <span>Your Mnemonic:</span>
-               <p>${userMnemonic}</p>
+               <p>${escapeHtml(userMnemonic)}</p>
            </div>`
         : '';
 
@@ -3432,10 +3458,10 @@ async function getRadicalInfo(char, isBack = false) {
         const componentsRow = radicalsOutput.querySelector('.radical-components');
 
         if (explanationEl) {
-            explanationEl.innerHTML = `<p>${localData.equation || 'Not available.'}</p>`;
+            explanationEl.innerHTML = `<p>${escapeHtml(localData.equation) || 'Not available.'}</p>`;
         }
         if (mnemonicEl) {
-            mnemonicEl.innerHTML = `<p>${localData.mnemonic || 'Not available.'}</p>`;
+            mnemonicEl.innerHTML = `<p>${escapeHtml(localData.mnemonic) || 'Not available.'}</p>`;
         }
         if (componentsRow) {
             const localComponents = localData.equation ? localData.equation.replace(/[+=()0-9a-z]/g, ' ').trim().split(' ').filter(Boolean).map(c => `<button class="component-item" onclick="getRadicalInfo('${c}')">${c}</button>`).join('') : 'Basic component';
@@ -3467,10 +3493,10 @@ async function getRadicalInfo(char, isBack = false) {
         const explanationEl = document.getElementById(explanationId);
         const mnemonicEl = document.getElementById(mnemonicId);
         if (explanationEl) {
-            explanationEl.innerHTML = `<span>AI Insight:</span><p>${data.explanation || 'No insight available.'}</p>`;
+            explanationEl.innerHTML = `<span>AI Insight:</span><p>${escapeHtml(data.explanation) || 'No insight available.'}</p>`;
         }
         if (mnemonicEl) {
-            mnemonicEl.innerHTML = `<span>Mnemonic:</span><p>${data.mnemonic || 'Visualise the components to remember the meaning.'}</p>`;
+            mnemonicEl.innerHTML = `<span>Mnemonic:</span><p>${escapeHtml(data.mnemonic) || 'Visualise the components to remember the meaning.'}</p>`;
         }
         if (Array.isArray(data.componentsDetail) && data.componentsDetail.length > 0) {
             const componentsRow = radicalsOutput.querySelector('.radical-components');

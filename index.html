@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pro Speech Transcriber</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Break down Chinese text into pinyin, per-character definitions, stroke order and flashcards." />
+    <meta name="theme-color" content="#f0f2f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='52' font-size='72' text-anchor='middle' dominant-baseline='central'%3E%E6%8B%BC%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://unpkg.com" crossorigin />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <title>Pinyin Reader — Chinese Text Breakdown</title>
 
     <style>
         :root {
@@ -29,6 +37,8 @@
             --shadow-sm: 0 4px 12px rgba(31, 38, 135, 0.07);
             --shadow-md: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
             --glass-filter: blur(12px) saturate(180%);
+            --glass-bg-opaque: rgba(245, 246, 248, 0.9);
+            --hover-bg: rgba(0, 0, 0, 0.05);
             
             --category-class: #ff9500; 
             --category-hw: #007aff; 
@@ -55,6 +65,8 @@
             --border-color: rgba(255,255,255,0.1);
             --shadow-sm: 0 4px 12px rgba(0,0,0,0.3);
             --shadow-md: 0 8px 32px rgba(0,0,0,0.5);
+            --glass-bg-opaque: rgba(28, 28, 30, 0.9);
+            --hover-bg: rgba(255, 255, 255, 0.08);
         }
 
         body {
@@ -472,6 +484,17 @@
         .toggle-switch.small .toggle-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
         .toggle-switch.small input:checked + .toggle-slider:before { transform: translateX(14px); }
 
+        /* Display options rows */
+        .settings-group { display: flex; flex-direction: column; gap: 0.75rem; }
+        .setting-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+        .setting-item label[for] { color: var(--text-secondary); font-size: 0.95rem; }
+
+        /* Toggleable display preferences (wired in app.js) */
+        body.hide-play-buttons .play-btn-svg,
+        body.hide-play-buttons .char-list-line-play { display: none !important; }
+        body.hide-punctuation .char-list-punctuation,
+        body.hide-punctuation .punctuation-mark { display: none !important; }
+
         /* Remove background from the auto-save group */
         .top-right-group.no-bg { background: none; border: none; }
         
@@ -648,16 +671,16 @@
                     <div class="settings-group">
                         <div class="setting-item">
                             <label for="hide-play-buttons-toggle">Hide Play Buttons</label>
-                            <label class="switch">
-                                <input type="checkbox" id="hide-play-buttons-toggle" checked>
-                                <span class="slider round"></span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="hide-play-buttons-toggle">
+                                <span class="toggle-slider"></span>
                             </label>
                         </div>
                         <div class="setting-item">
                             <label for="hide-punctuation-toggle">Hide Punctuation</label>
-                            <label class="switch">
-                                <input type="checkbox" id="hide-punctuation-toggle" checked>
-                                <span class="slider round"></span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="hide-punctuation-toggle">
+                                <span class="toggle-slider"></span>
                             </label>
                         </div>
                     </div>

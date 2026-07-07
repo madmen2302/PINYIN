@@ -14,18 +14,43 @@ const rateLimit = require('express-rate-limit');
 // === Cache Management ===
 const CACHE_LIMIT = 2000;
 const characterCache = new Map();
-let decompositionData = null;
+let decompositionData = {};
 
+// Ideographic Description Characters (⿰⿱⿲… U+2FF0–U+2FFF) used to describe how
+// components combine in an IDS string. We strip these to recover the components.
+const IDS_CHARS = /[⿰-⿿]/g;
+// CJK ideographs (main block + extension A + compatibility).
+const CJK_CHAR = /[㐀-鿿豈-﫿]/;
+
+// Load character decomposition data from the Make Me a Hanzi project (a JSONL
+// dictionary). Parsed once at startup into an in-memory map so per-character
+// lookups are instant. The previous source (hanzi-writer-data CH-decomp.json)
+// no longer exists on the CDN, which is why decomposition had silently broken.
 async function loadDecompositionData() {
-    const url = 'https://cdn.jsdelivr.net/npm/hanzi-writer-data@latest/data/CH-decomp.json';
+    const url = 'https://cdn.jsdelivr.net/gh/skishore/makemeahanzi@master/dictionary.txt';
     try {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Failed to load decomposition data: ${resp.status}`);
-        decompositionData = await resp.json();
-        console.log('✅ Loaded decomposition data.');
+        const text = await resp.text();
+        const map = {};
+        for (const line of text.split('\n')) {
+            if (!line.trim()) continue;
+            let entry;
+            try { entry = JSON.parse(line); } catch (_) { continue; }
+            const char = entry.character;
+            if (!char) continue;
+            const decomp = typeof entry.decomposition === 'string' ? entry.decomposition : '';
+            // Recover the component characters: drop the description operators and
+            // keep only CJK ideographs that differ from the character itself.
+            const components = Array.from(decomp.replace(IDS_CHARS, ''))
+                .filter(c => c !== char && CJK_CHAR.test(c));
+            map[char] = { components, radical: entry.radical || null };
+        }
+        decompositionData = map;
+        console.log(`✅ Loaded decomposition data for ${Object.keys(map).length} characters.`);
     } catch (error) {
         console.warn('⚠️ Could not load decomposition data:', error.message);
-        decompositionData = {}; 
+        decompositionData = {};
     }
 }
 
@@ -45,7 +70,25 @@ app.use(helmet({
 app.use(compression());
 app.use(cors()); // Allow requests from your frontend
 app.use(express.json({ limit: '50mb' })); // Increase the limit to handle larger DB files
-app.use(express.static(__dirname));
+
+// Serve static assets with cache policies tuned per file:
+// - dictionary.json is large (~6MB) and rarely changes -> cache for a day so
+//   repeat visits skip the download entirely (big win on slow connections).
+// - custom-db.json is mutable user data -> always revalidate.
+// - index.html / app.js deploy frequently (cron pull) -> always revalidate so
+//   updates appear immediately.
+app.use(express.static(__dirname, {
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+        const base = path.basename(filePath);
+        if (base === 'dictionary.json') {
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
+        } else if (base === 'custom-db.json' || base === 'index.html' || base === 'app.js') {
+            res.setHeader('Cache-Control', 'no-cache');
+        }
+    }
+}));
 
 // Rate Limiting
 const aiLimiter = rateLimit({
@@ -144,12 +187,9 @@ app.get('/character-data/:char', async (req, res) => {
     let strokeCount = null;
     let charData = null;
 
-    if (decompositionData && decompositionData[decodedChar]) {
-        const entry = decompositionData[decodedChar];
-        if (Array.isArray(entry)) {
-            if (Array.isArray(entry[1])) components = entry[1];
-            if (typeof entry[2] === 'number') strokeCount = entry[2];
-        }
+    const decompEntry = decompositionData[decodedChar];
+    if (decompEntry && Array.isArray(decompEntry.components)) {
+        components = decompEntry.components;
     }
 
     // --- OPTIMIZATION ---
@@ -157,7 +197,7 @@ app.get('/character-data/:char', async (req, res) => {
     // The client can fetch full stroke data on-demand if needed for animations.
     if (strokeCount === null) {
         try {
-            const charUrl = `https://cdn.jsdelivr.net/npm/hanzi-writer-data@latest/data/${encodeURIComponent(decodedChar)}.json`;
+            const charUrl = `https://cdn.jsdelivr.net/npm/hanzi-writer-data@2.0/${encodeURIComponent(decodedChar)}.json`;
             const resp = await fetch(charUrl);
             if (resp.ok) {
                 charData = await resp.json();
