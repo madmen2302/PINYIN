@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Break down Chinese text into pinyin, per-character definitions, stroke order and flashcards." />
-    <meta name="theme-color" content="#f0f2f5" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#eef0f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a12" media="(prefers-color-scheme: dark)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='52' font-size='72' text-anchor='middle' dominant-baseline='central'%3E%E6%8B%BC%3C/text%3E%3C/svg%3E" />
@@ -15,65 +15,84 @@
 
     <style>
         :root {
-            /* === PREMIUM GLASS VARIABLES === */
-            --bg-color: #f0f2f5;
-            --panel-bg: rgba(255, 255, 255, 0.65);
-            --card-bg: rgba(255, 255, 255, 0.75);
-            --input-bg: rgba(255, 255, 255, 0.5);
-            
-            --text-main: #1d1d1f;
-            --text-secondary: #515154;
-            --text-subtle: #86868b;
-            
-            --accent-color: #007aff;
-            --accent-hover: #005ecb;
-            --accent-glow: rgba(0, 122, 255, 0.25);
-            
-            --danger-color: #ff3b30;
-            --info-color: #5ac8fa;
-            --success-color: #34c759;
-            
-            --border-color: rgba(255,255,255,0.8);
-            --shadow-sm: 0 4px 12px rgba(31, 38, 135, 0.07);
-            --shadow-md: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-            --glass-filter: blur(12px) saturate(180%);
-            --glass-bg-opaque: rgba(245, 246, 248, 0.9);
-            --hover-bg: rgba(0, 0, 0, 0.05);
-            
-            --category-class: #ff9500; 
-            --category-hw: #007aff; 
-            --category-discussion: #34c759;
-            --category-practice: #af52de; 
-            --category-life: #5856d6;
+            /* === LIQUID GLASS · WARM INDIGO-TEAL === */
+            --bg-color: #eef0f6;
+            --panel-bg: rgba(255, 255, 255, 0.55);
+            --card-bg: rgba(255, 255, 255, 0.68);
+            --input-bg: rgba(255, 255, 255, 0.45);
+
+            --text-main: #1a1a2e;
+            --text-secondary: #4a4a63;
+            --text-subtle: #8a8aa0;
+
+            /* Warm indigo -> teal signature accent */
+            --accent-1: #6d5df6;
+            --accent-2: #17c0aa;
+            --accent-color: #5f5be6;
+            --accent-hover: #4d49d6;
+            --accent-glow: rgba(95, 91, 230, 0.28);
+            --accent-grad: linear-gradient(135deg, #6d5df6 0%, #17c0aa 100%);
+            --accent-soft: rgba(95, 91, 230, 0.12);
+
+            --danger-color: #ff3b5c;
+            --info-color: #38bdf8;
+            --success-color: #17c0aa;
+
+            --border-color: rgba(255, 255, 255, 0.7);
+            --border-hairline: rgba(120, 120, 150, 0.14);
+            --shadow-sm: 0 2px 10px rgba(40, 34, 90, 0.06);
+            --shadow-md: 0 12px 40px rgba(40, 34, 90, 0.12);
+            --glass-filter: blur(24px) saturate(190%);
+            --glass-bg-opaque: rgba(240, 241, 248, 0.85);
+            --hover-bg: rgba(95, 91, 230, 0.08);
+            --radius-lg: 30px;
+            --radius-md: 20px;
+            --radius-sm: 14px;
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+            --category-class: #ff9f0a;
+            --category-hw: #5f5be6;
+            --category-discussion: #17c0aa;
+            --category-practice: #bf5af2;
+            --category-life: #ff6482;
         }
 
         body[data-theme="dark"] {
-            --bg-color: #000000;
-            --panel-bg: rgba(28, 28, 30, 0.65);
-            --card-bg: rgba(44, 44, 46, 0.75);
-            --input-bg: rgba(120, 120, 128, 0.2);
-            
-            --text-main: #f5f5f7;
-            --text-secondary: #aeaeb2;
-            --text-subtle: #636366;
-            
-            --accent-color: #0a84ff;
-            --accent-hover: #409cff;
-            --accent-glow: rgba(10, 132, 255, 0.3);
-            --danger-color: #ff453a;
-            
-            --border-color: rgba(255,255,255,0.1);
-            --shadow-sm: 0 4px 12px rgba(0,0,0,0.3);
-            --shadow-md: 0 8px 32px rgba(0,0,0,0.5);
-            --glass-bg-opaque: rgba(28, 28, 30, 0.9);
+            --bg-color: #0a0a12;
+            --panel-bg: rgba(30, 30, 42, 0.55);
+            --card-bg: rgba(40, 40, 55, 0.62);
+            --input-bg: rgba(130, 130, 160, 0.16);
+
+            --text-main: #f2f2f7;
+            --text-secondary: #b4b4c6;
+            --text-subtle: #7a7a90;
+
+            --accent-1: #8a7cff;
+            --accent-2: #2ad4bd;
+            --accent-color: #7d78f2;
+            --accent-hover: #9a96f7;
+            --accent-glow: rgba(125, 120, 242, 0.35);
+            --accent-grad: linear-gradient(135deg, #8a7cff 0%, #2ad4bd 100%);
+            --accent-soft: rgba(125, 120, 242, 0.18);
+
+            --danger-color: #ff5573;
+            --success-color: #2ad4bd;
+
+            --border-color: rgba(255, 255, 255, 0.12);
+            --border-hairline: rgba(255, 255, 255, 0.08);
+            --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.35);
+            --shadow-md: 0 14px 44px rgba(0, 0, 0, 0.55);
+            --glass-bg-opaque: rgba(20, 20, 30, 0.85);
             --hover-bg: rgba(255, 255, 255, 0.08);
         }
 
         body {
-            background: var(--bg-color); 
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(0, 122, 255, 0.08) 0%, transparent 25%), 
-                radial-gradient(circle at 90% 80%, rgba(255, 59, 48, 0.08) 0%, transparent 25%);
+            background: var(--bg-color);
+            background-image:
+                radial-gradient(circle at 8% 12%, rgba(109, 93, 246, 0.16) 0%, transparent 34%),
+                radial-gradient(circle at 92% 8%, rgba(23, 192, 170, 0.13) 0%, transparent 32%),
+                radial-gradient(circle at 78% 94%, rgba(191, 90, 242, 0.10) 0%, transparent 38%);
+            background-attachment: fixed;
             color: var(--text-main);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             padding: 1rem; margin: 0; box-sizing: border-box;
@@ -262,7 +281,7 @@
         .word-unit:hover { background: var(--card-bg); border-color: var(--accent-color); }
         .word-unit.selected, .char-list-item.selected {
             border-color: var(--accent-color);
-            background: rgba(0, 122, 255, 0.1);
+            background: var(--accent-soft);
         }
         .word-unit.punctuation-unit, .word-unit.number-unit { min-width: unset; flex-grow: unset; justify-content: center; align-items: center; }
         .char-grid { display: flex; flex-wrap: wrap; justify-content: center; flex-grow: 1; align-items: center; }
@@ -386,7 +405,7 @@
         #deck-manager, #deck-details { background: var(--input-bg); border-radius: 16px; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
         #deck-list { min-height: 100px; max-height: 200px; overflow-y: auto; background: var(--panel-bg); border-radius: 8px; padding: 0.5rem; }
         .deck-item { padding: 0.75rem; border-radius: 8px; background: var(--card-bg); border: 1px solid transparent; cursor: pointer; display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
-        .deck-item.active { border-color: var(--accent-color); background: rgba(0, 122, 255, 0.1); }
+        .deck-item.active { border-color: var(--accent-color); background: var(--accent-soft); }
         #deck-manager-actions { display: flex; gap: 0.5rem; }
         #deck-manager-actions button { flex: 1; border: none; border-radius: 8px; padding: 0.6rem; cursor: pointer; background: var(--panel-bg); font-weight: 600; border: 1px solid var(--border-color); }
         #deck-summary { display: grid; grid-template-columns: 1fr; gap: 0.8rem; }
@@ -535,6 +554,54 @@
             #center-toggle-controls { display: none; }
             .header-group.center { display: flex; }
         }
+
+        /* ================================================================
+           LIQUID GLASS REFINEMENTS — warm indigo-teal redesign layer.
+           Kept last so it layers cleanly over the base component styles.
+           ================================================================ */
+        .glass-card, #history-panel, #right-panel {
+            border: 1px solid var(--border-hairline);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md), inset 0 1px 0 var(--border-color);
+        }
+
+        .main-header {
+            backdrop-filter: saturate(180%) blur(20px);
+            -webkit-backdrop-filter: saturate(180%) blur(20px);
+            border-bottom: 1px solid var(--border-hairline);
+        }
+        .header-icon-btn { transition: background-color 0.2s ease, transform 0.2s var(--ease-spring); }
+        .header-icon-btn:active { transform: scale(0.9); }
+
+        /* Buttons: continuous corners, spring press, glass surface */
+        .panel-btn, .modal-btn {
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-hairline);
+            transition: transform 0.25s var(--ease-spring), box-shadow 0.25s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+        .panel-btn:hover, .modal-btn:hover { transform: translateY(-2px); }
+        .panel-btn:active, .modal-btn:active { transform: translateY(0) scale(0.98); }
+        .modal-btn.primary {
+            background: var(--accent-grad); color: #fff; border: none;
+            box-shadow: 0 6px 18px var(--accent-glow);
+        }
+        .modal-btn.primary:hover { box-shadow: 0 10px 26px var(--accent-glow); }
+
+        /* Inputs */
+        #text-input, #history-search-input { border: 1px solid var(--border-hairline); border-radius: var(--radius-md); }
+        #text-input:focus { box-shadow: 0 0 0 4px var(--accent-glow); }
+
+        /* Word cards & list rows: continuous corners + spring hover */
+        .word-unit { border-radius: var(--radius-md); transition: background 0.2s, border-color 0.2s, transform 0.2s var(--ease-spring); }
+        .word-unit:hover { transform: translateY(-2px); }
+        .history-item { border-radius: var(--radius-md); transition: transform 0.2s var(--ease-spring), box-shadow 0.2s ease, border-color 0.2s ease; }
+
+        /* Signature gradient on play controls */
+        .play-btn-svg, .char-list-line-play { background: var(--accent-grad); box-shadow: 0 4px 12px var(--accent-glow); }
+
+        /* Accent scrollbar */
+        ::-webkit-scrollbar-thumb { background: var(--accent-soft); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-glow); }
     </style>
 </head>
 <body>
