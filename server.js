@@ -136,12 +136,29 @@ app.post('/translate', async (req, res) => {
             headers: { 'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: [text], target_lang })
         });
-        const data = await deeplResponse.json();
-        if (!deeplResponse.ok) throw new Error(data.message || 'DeepL API error');
+
+        // DeepL can return an empty or non-JSON body on errors (e.g. 456 quota,
+        // 429 rate limit), which used to make .json() throw "Unexpected end of
+        // JSON input" and 500 every translation. Read as text and parse safely.
+        const raw = await deeplResponse.text();
+        let data = null;
+        if (raw) { try { data = JSON.parse(raw); } catch (_) { /* non-JSON error body */ } }
+
+        if (!deeplResponse.ok) {
+            let msg = (data && data.message) || raw || `DeepL error ${deeplResponse.status}`;
+            if (deeplResponse.status === 456) msg = 'DeepL quota exceeded for this billing period.';
+            else if (deeplResponse.status === 429) msg = 'DeepL rate limit hit — too many requests. Please slow down.';
+            console.error(`DeepL ${deeplResponse.status}: ${msg}`);
+            return res.status(502).json({ error: msg });
+        }
+        if (!data) {
+            console.error('DeepL returned an empty/invalid body.');
+            return res.status(502).json({ error: 'DeepL returned an empty or invalid response.' });
+        }
         res.json(data);
     } catch (error) {
-        console.error('Error proxying to DeepL:', error);
-        res.status(500).json({ error: error.message });
+        console.error('Error proxying to DeepL:', error.message);
+        res.status(502).json({ error: error.message });
     }
 });
 
