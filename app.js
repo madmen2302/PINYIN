@@ -525,7 +525,7 @@ if (saveSessionToggle) {
 
 // === NEW: Flashcard Listeners ===
 flashcardBtn.addEventListener('click', showFlashcardModal);
-flashcardGameBtn.addEventListener('click', startFlashcardGameMode);
+flashcardGameBtn.addEventListener('click', openGamesHub);
 selectAllCharsBtn.addEventListener('click', selectAllCharacters);
 flashcardCloseBtn.addEventListener('click', () => {
     flashcardModal.style.display = 'none';
@@ -3756,4 +3756,288 @@ function toggleCategoryFilter(button) {
     }
 
     renderHistory();
+}
+
+// ===================================
+// ============ GAMES MODE ===========
+// ===================================
+// Three quick games (Match / Quiz / Listen) built on the active flashcard
+// deck, or the current text session's characters as a fallback. Quiz/Listen
+// answers feed the SRS via updateCardStats when the source is a real deck card.
+
+const gameSession = { type: null, cards: [], index: 0, score: 0, total: 0 };
+let gamesModalEl = null;
+
+function gameShuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function speakOnce(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = availableVoices.find(voice => voice.name === voiceSelector.value);
+    if (v) u.voice = v;
+    u.lang = 'zh-CN';
+    u.rate = parseFloat(speedSlider?.value || '0.9');
+    window.speechSynthesis.speak(u);
+}
+
+// Build the card pool: prefer the active deck, fall back to the current session.
+function getGamesSourceCards() {
+    const deck = getActiveDeck();
+    if (deck && deck.cards.length > 0) {
+        return deck.cards
+            .filter(c => c.char && chineseCharRegex.test(c.char))
+            .map(c => ({ char: c.char, pinyin: c.pinyin, def: c.def, _card: c }));
+    }
+    const session = findSessionById(currentSessionId);
+    if (session && session.stats) {
+        return Object.keys(session.stats)
+            .filter(char => chineseCharRegex.test(char))
+            .map(char => ({
+                char,
+                pinyin: window.pinyinPro?.pinyin(char, { toneType: 'symbol' }) || '',
+                def: (dictionary?.[char] || '').split(';')[0].split('/')[0].replace(/\[.*?\]|\(.*?\)/g, '').trim(),
+                _card: null
+            }));
+    }
+    return [];
+}
+
+function ensureGamesModal() {
+    if (gamesModalEl) return gamesModalEl;
+    gamesModalEl = document.createElement('div');
+    gamesModalEl.id = 'games-modal';
+    gamesModalEl.className = 'main-modal';
+    gamesModalEl.innerHTML = `
+        <div class="modal-content game-modal-content">
+            <div class="game-topbar">
+                <h3 id="game-title">Games</h3>
+                <button id="game-close-btn" class="modal-btn">Close</button>
+            </div>
+            <div id="game-body"></div>
+        </div>`;
+    document.body.appendChild(gamesModalEl);
+    gamesModalEl.querySelector('#game-close-btn').addEventListener('click', closeGames);
+    gamesModalEl.addEventListener('click', (e) => { if (e.target === gamesModalEl) closeGames(); });
+    return gamesModalEl;
+}
+
+function closeGames() {
+    if (gamesModalEl) gamesModalEl.classList.remove('active');
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+
+function openGamesHub() {
+    ensureGamesModal();
+    const cards = getGamesSourceCards();
+    const body = gamesModalEl.querySelector('#game-body');
+    gamesModalEl.querySelector('#game-title').textContent = 'Games';
+
+    if (cards.length < 4) {
+        body.innerHTML = `<p class="info" style="text-align:center; padding:1.5rem 0.5rem;">You need at least 4 characters to play. Add characters to a flashcard deck, or process some text first, then come back.</p>`;
+        gamesModalEl.classList.add('active');
+        return;
+    }
+
+    const deck = getActiveDeck();
+    const source = deck && deck.cards.length ? `from "${escapeHtml(deck.name)}"` : 'from this session';
+    body.innerHTML = `
+        <p class="game-hub-sub">Playing with ${cards.length} characters ${source}.</p>
+        <div class="game-hub">
+            <button class="game-hub-choice" data-game="match">
+                <span class="game-hub-emoji">🀄</span>
+                <span class="game-hub-name">Match</span>
+                <span class="game-hub-desc">Pair each character with its meaning</span>
+            </button>
+            <button class="game-hub-choice" data-game="quiz">
+                <span class="game-hub-emoji">✅</span>
+                <span class="game-hub-name">Quiz</span>
+                <span class="game-hub-desc">Multiple-choice meaning &amp; pinyin</span>
+            </button>
+            <button class="game-hub-choice" data-game="listen">
+                <span class="game-hub-emoji">🎧</span>
+                <span class="game-hub-name">Listen</span>
+                <span class="game-hub-desc">Hear it, then pick the character</span>
+            </button>
+        </div>`;
+    body.querySelectorAll('.game-hub-choice').forEach(btn => {
+        btn.addEventListener('click', () => startGame(btn.dataset.game, cards));
+    });
+    gamesModalEl.classList.add('active');
+}
+
+function startGame(type, cards) {
+    gameSession.type = type;
+    if (type === 'match') return startMatchGame(cards);
+    if (type === 'quiz') return startQuizGame(cards);
+    if (type === 'listen') return startListenGame(cards);
+}
+
+// --- Match: tap a character, then tap its meaning ---
+function startMatchGame(allCards) {
+    const body = gamesModalEl.querySelector('#game-body');
+    gamesModalEl.querySelector('#game-title').textContent = 'Match';
+    const pool = gameShuffle(allCards).slice(0, Math.min(6, allCards.length));
+
+    const leftCol = pool.map(c => `<button class="game-tile match-char" data-key="${escapeHtml(c.char)}">${escapeHtml(c.char)}</button>`).join('');
+    const rightCol = gameShuffle(pool).map(c => {
+        const meaning = escapeHtml(truncateDefinition(c.def || '', 4) || c.pinyin || '?');
+        const label = c.pinyin ? `${escapeHtml(c.pinyin)} · ${meaning}` : meaning;
+        return `<button class="game-tile match-def" data-key="${escapeHtml(c.char)}">${label}</button>`;
+    }).join('');
+
+    body.innerHTML = `
+        <div class="game-header"><span id="game-progress">0 / ${pool.length} matched</span><button class="modal-btn game-restart">Restart</button></div>
+        <div class="match-grid"><div class="match-col">${leftCol}</div><div class="match-col">${rightCol}</div></div>
+        <div id="game-feedback" class="game-feedback"></div>`;
+
+    let selected = null;
+    let matched = 0;
+    const progress = body.querySelector('#game-progress');
+    body.querySelector('.game-restart').addEventListener('click', () => startMatchGame(allCards));
+
+    body.querySelectorAll('.match-char').forEach(tile => tile.addEventListener('click', () => {
+        if (tile.classList.contains('faded')) return;
+        body.querySelectorAll('.match-char').forEach(x => x.classList.remove('selected'));
+        tile.classList.add('selected');
+        selected = tile;
+    }));
+
+    body.querySelectorAll('.match-def').forEach(tile => tile.addEventListener('click', () => {
+        if (tile.classList.contains('faded') || !selected) return;
+        if (tile.dataset.key === selected.dataset.key) {
+            const charTile = selected;
+            [charTile, tile].forEach(t => { t.classList.remove('selected'); t.classList.add('correct'); });
+            setTimeout(() => [charTile, tile].forEach(t => t.classList.add('faded')), 350);
+            selected = null;
+            matched++;
+            progress.textContent = `${matched} / ${pool.length} matched`;
+            if (matched === pool.length) {
+                const fb = body.querySelector('#game-feedback');
+                fb.innerHTML = `<div class="game-win">🎉 Cleared in ${pool.length} pairs! <button class="modal-btn primary game-again" style="margin-left:0.5rem;">Play again</button></div>`;
+                fb.querySelector('.game-again').addEventListener('click', () => startMatchGame(allCards));
+            }
+        } else {
+            tile.classList.add('wrong');
+            setTimeout(() => tile.classList.remove('wrong'), 450);
+            selected.classList.remove('selected');
+            selected = null;
+        }
+    }));
+}
+
+// --- Quiz: character -> pick the meaning (or pinyin) ---
+function startQuizGame(allCards) {
+    gamesModalEl.querySelector('#game-title').textContent = 'Quiz';
+    gameSession.cards = gameShuffle(allCards).slice(0, Math.min(10, allCards.length));
+    gameSession.index = 0;
+    gameSession.score = 0;
+    gameSession.total = gameSession.cards.length;
+    showQuizRound(allCards);
+}
+
+function showQuizRound(allCards) {
+    const gs = gameSession;
+    const body = gamesModalEl.querySelector('#game-body');
+    if (gs.index >= gs.cards.length) return showGameSummary(allCards, 'quiz');
+
+    const card = gs.cards[gs.index];
+    const mode = card.pinyin && Math.random() < 0.4 ? 'pinyin' : 'meaning';
+    const textFor = c => mode === 'pinyin' ? (c.pinyin || '') : truncateDefinition(c.def || '', 5);
+    const correct = textFor(card) || card.pinyin || '?';
+
+    const options = [correct];
+    const seen = new Set([correct]);
+    for (const c of gameShuffle(allCards)) {
+        if (c.char === card.char) continue;
+        const t = textFor(c);
+        if (t && !seen.has(t)) { seen.add(t); options.push(t); }
+        if (options.length >= 4) break;
+    }
+
+    body.innerHTML = `
+        <div class="game-header"><span>${gs.index + 1} / ${gs.total}</span><span>Score: ${gs.score}</span></div>
+        <div class="quiz-prompt">${escapeHtml(card.char)}</div>
+        <div class="quiz-sub">What's the ${mode === 'pinyin' ? 'pinyin' : 'meaning'}?</div>
+        <div class="quiz-options">${gameShuffle(options).map(o => `<button class="game-tile quiz-opt">${escapeHtml(o)}</button>`).join('')}</div>
+        <div id="game-feedback" class="game-feedback"></div>`;
+
+    body.querySelectorAll('.quiz-opt').forEach(btn => btn.addEventListener('click', () => {
+        const isCorrect = btn.textContent === correct;
+        body.querySelectorAll('.quiz-opt').forEach(b => {
+            b.disabled = true;
+            if (b.textContent === correct) b.classList.add('correct');
+        });
+        if (isCorrect) gs.score++; else btn.classList.add('wrong');
+        if (card._card) updateCardStats(card._card, isCorrect);
+        gs.index++;
+        setTimeout(() => showQuizRound(allCards), 900);
+    }));
+}
+
+// --- Listen: hear a character, pick it from four ---
+function startListenGame(allCards) {
+    gamesModalEl.querySelector('#game-title').textContent = 'Listen';
+    gameSession.cards = gameShuffle(allCards).slice(0, Math.min(10, allCards.length));
+    gameSession.index = 0;
+    gameSession.score = 0;
+    gameSession.total = gameSession.cards.length;
+    showListenRound(allCards);
+}
+
+function showListenRound(allCards) {
+    const gs = gameSession;
+    const body = gamesModalEl.querySelector('#game-body');
+    if (gs.index >= gs.cards.length) return showGameSummary(allCards, 'listen');
+
+    const card = gs.cards[gs.index];
+    const others = gameShuffle(allCards.filter(c => c.char !== card.char)).slice(0, 3);
+    const options = gameShuffle([card, ...others]);
+
+    body.innerHTML = `
+        <div class="game-header"><span>${gs.index + 1} / ${gs.total}</span><span>Score: ${gs.score}</span></div>
+        <button id="listen-play" class="listen-play-btn">🔊 Play</button>
+        <div class="listen-sub">Which character did you hear?</div>
+        <div class="quiz-options listen-options">${options.map(o => `<button class="game-tile listen-opt" data-char="${escapeHtml(o.char)}">${escapeHtml(o.char)}</button>`).join('')}</div>
+        <div id="game-feedback" class="game-feedback"></div>`;
+
+    body.querySelector('#listen-play').addEventListener('click', () => speakOnce(card.char));
+    setTimeout(() => speakOnce(card.char), 250);
+
+    body.querySelectorAll('.listen-opt').forEach(btn => btn.addEventListener('click', () => {
+        const isCorrect = btn.dataset.char === card.char;
+        body.querySelectorAll('.listen-opt').forEach(b => {
+            b.disabled = true;
+            if (b.dataset.char === card.char) b.classList.add('correct');
+        });
+        if (isCorrect) gs.score++; else btn.classList.add('wrong');
+        if (card._card) updateCardStats(card._card, isCorrect);
+        gs.index++;
+        setTimeout(() => showListenRound(allCards), 1000);
+    }));
+}
+
+function showGameSummary(allCards, type) {
+    const gs = gameSession;
+    if (gs.cards.some(c => c._card)) saveFlashcards(); // persist SRS updates
+    const pct = gs.total ? Math.round((gs.score / gs.total) * 100) : 0;
+    const body = gamesModalEl.querySelector('#game-body');
+    body.innerHTML = `
+        <div class="game-summary">
+            <div class="game-summary-score">${gs.score} / ${gs.total}</div>
+            <div class="game-summary-pct">${pct}% correct</div>
+            <div class="game-summary-actions">
+                <button class="modal-btn primary" id="game-replay">Play again</button>
+                <button class="modal-btn" id="game-hub-back">Back to games</button>
+            </div>
+        </div>`;
+    body.querySelector('#game-replay').addEventListener('click', () => startGame(type, allCards));
+    body.querySelector('#game-hub-back').addEventListener('click', () => openGamesHub());
 }
