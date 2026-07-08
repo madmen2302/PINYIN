@@ -4376,3 +4376,268 @@ async function addTutorTranscriptLine(who, chinese) {
     enEl.classList.remove('loading');
     wrap.scrollTop = wrap.scrollHeight;
 }
+
+// ===================================
+// ============ BOOK READER ==========
+// ===================================
+// Read a Chinese book (EPUB / PDF / TXT) in a continuous-scroll reader with
+// tone-colored pinyin over every character, new-character underlining,
+// tap-to-define, and lazy per-paragraph translation (cached server-side).
+// Pinyin + dictionary are free/local; only translation (on tap) costs anything.
+
+const readBookBtn = document.getElementById('read-book-btn');
+const bookFileInput = document.getElementById('book-file-input');
+let jsZipPromise = null;
+let pdfJsPromise = null;
+let readerObserver = null;
+
+if (readBookBtn && bookFileInput) {
+    readBookBtn.addEventListener('click', () => bookFileInput.click());
+    bookFileInput.addEventListener('change', () => {
+        const file = bookFileInput.files && bookFileInput.files[0];
+        if (file) handleBookFile(file);
+        bookFileInput.value = '';
+    });
+}
+
+function loadScriptOnce(src, globalName, existingPromiseSetter, existingPromise, friendly) {
+    if (window[globalName]) return Promise.resolve(window[globalName]);
+    if (existingPromise) return existingPromise;
+    const p = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve(window[globalName]);
+        s.onerror = () => reject(new Error(friendly || 'Could not load a required library.'));
+        document.head.appendChild(s);
+    });
+    existingPromiseSetter(p);
+    return p;
+}
+function loadJSZip() {
+    return loadScriptOnce('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js', 'JSZip',
+        (p) => { jsZipPromise = p; }, jsZipPromise, 'Could not load the EPUB engine.');
+}
+function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfJsPromise) return pdfJsPromise;
+    pdfJsPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+        s.onload = () => {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+            resolve(window.pdfjsLib);
+        };
+        s.onerror = () => { pdfJsPromise = null; reject(new Error('Could not load the PDF engine.')); };
+        document.head.appendChild(s);
+    });
+    return pdfJsPromise;
+}
+
+async function handleBookFile(file) {
+    const name = (file.name || '').toLowerCase();
+    processingOverlay.classList.add('visible');
+    try {
+        let book;
+        if (name.endsWith('.epub')) book = await parseBookEpub(file);
+        else if (name.endsWith('.pdf')) book = await parseBookPdf(file);
+        else book = await parseBookTxt(file);
+        processingOverlay.classList.remove('visible');
+        if (!book.chapters || book.chapters.length === 0) {
+            showModal('Nothing to read', 'Could not extract any text from that file.');
+            return;
+        }
+        openReader(book);
+    } catch (error) {
+        processingOverlay.classList.remove('visible');
+        showModal('Could not open book', escapeHtml(error.message || 'Parsing failed.'));
+    }
+}
+
+// Split plain text into chapters on common Chinese/English chapter headings.
+function textToChapters(text, fallbackTitle) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const chapterRe = /^(第\s*[0-9零一二三四五六七八九十百千两]+\s*[章回節节篇卷]|Chapter\s+\d+|CHAPTER\s+\d+)/;
+    const chapters = [];
+    let current = { title: fallbackTitle || 'Start', paragraphs: [] };
+    for (const line of lines) {
+        if (chapterRe.test(line) && line.length < 40) {
+            if (current.paragraphs.length) chapters.push(current);
+            current = { title: line, paragraphs: [] };
+        } else {
+            current.paragraphs.push(line);
+        }
+    }
+    if (current.paragraphs.length) chapters.push(current);
+    return chapters.length ? chapters : [{ title: fallbackTitle || 'Text', paragraphs: lines }];
+}
+
+async function parseBookTxt(file) {
+    const text = await file.text();
+    return { title: file.name.replace(/\.[^.]+$/, ''), chapters: textToChapters(text, file.name) };
+}
+
+async function parseBookEpub(file) {
+    const JSZip = await loadJSZip();
+    const zip = await JSZip.loadAsync(file);
+    const parser = new DOMParser();
+    const containerXml = await zip.file('META-INF/container.xml').async('string');
+    const opfPath = parser.parseFromString(containerXml, 'application/xml')
+        .querySelector('rootfile').getAttribute('full-path');
+    const opfDir = opfPath.includes('/') ? opfPath.replace(/[^/]+$/, '') : '';
+    const opf = parser.parseFromString(await zip.file(opfPath).async('string'), 'application/xml');
+    const title = opf.querySelector('metadata title, title')?.textContent?.trim() || file.name;
+    const manifest = {};
+    opf.querySelectorAll('manifest > item').forEach(it => { manifest[it.getAttribute('id')] = it.getAttribute('href'); });
+    const spine = [...opf.querySelectorAll('spine > itemref')]
+        .map(ir => manifest[ir.getAttribute('idref')]).filter(Boolean);
+
+    const chapters = [];
+    for (const href of spine) {
+        const path = opfDir + decodeURIComponent(href.split('#')[0]);
+        const entry = zip.file(path);
+        if (!entry) continue;
+        const doc = parser.parseFromString(await entry.async('string'), 'text/html');
+        const chTitle = doc.querySelector('h1,h2,h3,title')?.textContent?.trim() || `Section ${chapters.length + 1}`;
+        let paragraphs = [...doc.querySelectorAll('p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+        if (paragraphs.length === 0) {
+            paragraphs = (doc.body?.textContent || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+        }
+        if (paragraphs.length && paragraphs.some(p => chineseCharRegex.test(p))) {
+            chapters.push({ title: chTitle, paragraphs });
+        }
+    }
+    return { title, chapters };
+}
+
+async function parseBookPdf(file) {
+    const pdfjsLib = await loadPdfJs();
+    const data = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjsLib.getDocument({ data }).promise;
+    const chapters = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        let text = content.items.map(it => it.str).join(' ').replace(/[ \t]+/g, ' ').trim();
+        if (text.replace(/\s/g, '').length < 4) {
+            // Likely a scanned/image page — OCR it (pricier).
+            text = await ocrPdfPage(page);
+        }
+        if (text && chineseCharRegex.test(text)) {
+            const paragraphs = text.split(/(?<=[。！？!?])/).map(s => s.trim()).filter(Boolean);
+            chapters.push({ title: `Page ${i}`, paragraphs: paragraphs.length ? paragraphs : [text] });
+        }
+    }
+    return { title: file.name.replace(/\.[^.]+$/, ''), chapters };
+}
+
+async function ocrPdfPage(page) {
+    try {
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
+        return await ocrViaServer(blob);
+    } catch (_) {
+        return '';
+    }
+}
+
+// Characters the learner already knows: everything in their decks + seen stats.
+function buildKnownCharSet() {
+    const set = new Set();
+    (flashcardStore.decks || []).forEach(d => (d.cards || []).forEach(c => {
+        if (c.char) for (const ch of c.char) set.add(ch);
+    }));
+    try {
+        const globalStats = calculateGlobalStats();
+        Object.keys(globalStats).forEach(ch => set.add(ch));
+    } catch (_) { /* ignore */ }
+    return set;
+}
+
+function readerToneNumber(ch) {
+    const arr = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'num', type: 'array' }) : null;
+    const m = arr && arr[0] ? arr[0].match(/[1-5]/) : null;
+    return m ? m[0] : '5';
+}
+
+function renderReaderParagraph(text, known) {
+    let inner = '';
+    for (const ch of text) {
+        if (chineseCharRegex.test(ch)) {
+            const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'symbol' }) : '';
+            const tone = readerToneNumber(ch);
+            const newClass = known && !known.has(ch) ? ' new-char' : '';
+            inner += `<ruby class="rd-char tone-${tone}${newClass}" onclick="window.showStrokes('${ch}')">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+        } else {
+            inner += escapeHtml(ch);
+        }
+    }
+    return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-translate" onclick="window.readerTranslate(this)">译</button><span class="rd-en"></span></p>`;
+}
+
+window.readerTranslate = async (btn) => {
+    const para = btn.closest('.rd-para');
+    const enEl = para.querySelector('.rd-en');
+    if (enEl.textContent) { enEl.textContent = ''; return; } // toggle off
+    enEl.textContent = '…';
+    try {
+        enEl.textContent = await translateText(para.dataset.zh, 'EN');
+    } catch (_) {
+        enEl.textContent = '(translation unavailable)';
+    }
+};
+
+function ensureReaderOverlay() {
+    let o = document.getElementById('reader-overlay');
+    if (o) return o;
+    o = document.createElement('div');
+    o.id = 'reader-overlay';
+    o.innerHTML = `
+        <div class="reader-topbar">
+            <h3 id="reader-title">Reader</h3>
+            <select id="reader-chapter-select" aria-label="Jump to chapter"></select>
+            <button class="modal-btn" id="reader-close">Close</button>
+        </div>
+        <div id="reader-content"></div>`;
+    document.body.appendChild(o);
+    o.querySelector('#reader-close').addEventListener('click', () => {
+        o.classList.remove('active');
+        if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
+    });
+    return o;
+}
+
+function openReader(book) {
+    const overlay = ensureReaderOverlay();
+    const known = buildKnownCharSet();
+    const content = overlay.querySelector('#reader-content');
+    const select = overlay.querySelector('#reader-chapter-select');
+    overlay.querySelector('#reader-title').textContent = book.title || 'Reader';
+
+    select.innerHTML = book.chapters.map((c, i) =>
+        `<option value="rd-ch-${i}">${escapeHtml(c.title || ('Chapter ' + (i + 1)))}</option>`).join('');
+
+    content.innerHTML = book.chapters.map((c, i) => `
+        <section class="rd-chapter" id="rd-ch-${i}">
+            <div class="rd-chapter-title">${escapeHtml(c.title || ('Chapter ' + (i + 1)))}</div>
+            ${c.paragraphs.map(p => renderReaderParagraph(p, known)).join('')}
+        </section>`).join('');
+    content.scrollTop = 0;
+
+    select.onchange = () => document.getElementById(select.value)?.scrollIntoView();
+
+    // Keep the chapter dropdown in sync with scroll position.
+    if (readerObserver) readerObserver.disconnect();
+    readerObserver = new IntersectionObserver((entries) => {
+        entries.forEach(e => { if (e.isIntersecting) select.value = e.target.id; });
+    }, { root: content, rootMargin: '0px 0px -80% 0px' });
+    book.chapters.forEach((_, i) => {
+        const el = document.getElementById(`rd-ch-${i}`);
+        if (el) readerObserver.observe(el);
+    });
+
+    overlay.classList.add('active');
+}
