@@ -661,6 +661,22 @@
         .game-summary-pct { font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 1.5rem; }
         .game-summary-actions { display: flex; gap: 0.75rem; justify-content: center; }
         .game-win { margin-top: 0.5rem; font-size: 1.1rem; text-align: center; }
+
+        /* Speak game */
+        .speak-hint { text-align: center; color: var(--text-secondary); margin-bottom: 1.5rem; }
+        .speak-pinyin { color: var(--accent-color); font-weight: 600; }
+        .speak-record-btn {
+            display: block; margin: 0 auto; background: var(--accent-grad); color: #fff; border: none;
+            border-radius: 999px; padding: 1rem 2.5rem; font-size: 1.15rem; font-weight: 600; cursor: pointer;
+            box-shadow: 0 6px 20px var(--accent-glow); transition: transform 0.15s var(--ease-spring);
+        }
+        .speak-record-btn:active { transform: scale(0.97); }
+        .speak-record-btn.recording { background: var(--danger-color); animation: speak-pulse 1.3s infinite; }
+        @keyframes speak-pulse {
+            0%,100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger-color) 30%, transparent); }
+            50% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--danger-color) 6%, transparent); }
+        }
+
         @media (max-width: 520px) { .quiz-prompt { font-size: 3.5rem; } .quiz-options { grid-template-columns: 1fr; } }
     </style>
 </head>

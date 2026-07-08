@@ -3866,6 +3866,11 @@ function openGamesHub() {
                 <span class="game-hub-name">Listen</span>
                 <span class="game-hub-desc">Hear it, then pick the character</span>
             </button>
+            <button class="game-hub-choice" data-game="speak">
+                <span class="game-hub-emoji">🎤</span>
+                <span class="game-hub-name">Speak</span>
+                <span class="game-hub-desc">Say it aloud, check your pronunciation</span>
+            </button>
         </div>`;
     body.querySelectorAll('.game-hub-choice').forEach(btn => {
         btn.addEventListener('click', () => startGame(btn.dataset.game, cards));
@@ -3878,6 +3883,7 @@ function startGame(type, cards) {
     if (type === 'match') return startMatchGame(cards);
     if (type === 'quiz') return startQuizGame(cards);
     if (type === 'listen') return startListenGame(cards);
+    if (type === 'speak') return startSpeakGame(cards);
 }
 
 // --- Match: tap a character, then tap its meaning ---
@@ -4040,6 +4046,99 @@ function showGameSummary(allCards, type) {
         </div>`;
     body.querySelector('#game-replay').addEventListener('click', () => startGame(type, allCards));
     body.querySelector('#game-hub-back').addEventListener('click', () => openGamesHub());
+}
+
+// --- Speak: say the character aloud; Whisper checks your pronunciation ---
+let speakMediaRecorder = null;
+let speakChunks = [];
+let speakStream = null;
+let speakBusy = false;
+
+function startSpeakGame(allCards) {
+    gamesModalEl.querySelector('#game-title').textContent = 'Speak';
+    gameSession.cards = gameShuffle(allCards).slice(0, Math.min(8, allCards.length));
+    gameSession.index = 0;
+    gameSession.score = 0;
+    gameSession.total = gameSession.cards.length;
+    showSpeakRound(allCards);
+}
+
+function showSpeakRound(allCards) {
+    const gs = gameSession;
+    const body = gamesModalEl.querySelector('#game-body');
+    if (gs.index >= gs.cards.length) return showGameSummary(allCards, 'speak');
+    const card = gs.cards[gs.index];
+    body.innerHTML = `
+        <div class="game-header"><span>${gs.index + 1} / ${gs.total}</span><span>Score: ${gs.score}</span></div>
+        <div class="quiz-prompt">${escapeHtml(card.char)}</div>
+        <div class="speak-hint"><span class="speak-pinyin">${escapeHtml(card.pinyin || '')}</span> · ${escapeHtml(truncateDefinition(card.def || '', 5))}
+            <button class="modal-btn speak-hear" style="margin-left:0.5rem;">🔊 Hear it</button></div>
+        <button id="speak-record-btn" class="speak-record-btn">🎤 Tap &amp; speak</button>
+        <div id="game-feedback" class="game-feedback"></div>
+        <div id="speak-next-wrap" style="text-align:center; margin-top:0.5rem;"></div>`;
+    body.querySelector('.speak-hear').addEventListener('click', () => speakOnce(card.char));
+    const recBtn = body.querySelector('#speak-record-btn');
+    recBtn.addEventListener('click', () => toggleSpeakRecording(recBtn, card, allCards));
+}
+
+async function toggleSpeakRecording(btn, card, allCards) {
+    if (speakBusy) return;
+    if (speakMediaRecorder && speakMediaRecorder.state === 'recording') {
+        speakMediaRecorder.stop();
+        return;
+    }
+    try {
+        speakStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        gamesModalEl.querySelector('#game-feedback').innerHTML = `<span class="error">Microphone access denied.</span>`;
+        return;
+    }
+    speakChunks = [];
+    speakMediaRecorder = new MediaRecorder(speakStream, { mimeType: 'audio/webm' });
+    speakMediaRecorder.ondataavailable = e => { if (e.data.size) speakChunks.push(e.data); };
+    speakMediaRecorder.onstop = () => evaluateSpeech(btn, card, allCards);
+    speakMediaRecorder.start();
+    btn.classList.add('recording');
+    btn.textContent = '⏹ Stop';
+}
+
+async function evaluateSpeech(btn, card, allCards) {
+    if (speakStream) { speakStream.getTracks().forEach(t => t.stop()); speakStream = null; }
+    btn.classList.remove('recording');
+    btn.textContent = '🎤 Tap & speak';
+    if (speakChunks.length === 0) return;
+    speakBusy = true;
+    const fb = gamesModalEl.querySelector('#game-feedback');
+    fb.innerHTML = '<span class="loading">Checking…</span>';
+    try {
+        const blob = new Blob(speakChunks, { type: 'audio/webm' });
+        const result = await sendBlobToWhisper(blob, card.char);
+        const { correct, heard } = comparePronunciation(card, result.text || '');
+        if (correct) gameSession.score++;
+        if (card._card) updateCardStats(card._card, correct);
+        fb.innerHTML = correct
+            ? `<span style="color:var(--success-color); font-weight:700;">✅ Nice! Heard: ${escapeHtml(heard)}</span>`
+            : `<span style="color:var(--danger-color); font-weight:700;">Heard: ${escapeHtml(heard)} — try again</span>`;
+        const nextWrap = gamesModalEl.querySelector('#speak-next-wrap');
+        nextWrap.innerHTML = `<button class="modal-btn primary" id="speak-next">Next ›</button>`;
+        nextWrap.querySelector('#speak-next').addEventListener('click', () => { gameSession.index++; showSpeakRound(allCards); });
+    } catch (e) {
+        fb.innerHTML = `<span class="error">${escapeHtml(e.message || 'Could not check audio.')}</span>`;
+    } finally {
+        speakBusy = false;
+    }
+}
+
+// Correct if Whisper heard the exact character, or a homophone (toneless pinyin match).
+function comparePronunciation(card, heardRaw) {
+    const clean = s => (s || '').replace(/\s+/g, '').replace(/[，。？！、；：""''（）(),.?!]/g, '');
+    const heard = clean(heardRaw);
+    if (!heard) return { correct: false, heard: '(nothing heard)' };
+    if (heard.includes(card.char)) return { correct: true, heard };
+    const targetPy = window.pinyinPro?.pinyin(card.char, { toneType: 'none' }) || '';
+    const heardPy = window.pinyinPro?.pinyin(heard, { toneType: 'none' }) || '';
+    const correct = !!targetPy && heardPy.split(/\s+/).includes(targetPy);
+    return { correct, heard };
 }
 
 // ===================================
