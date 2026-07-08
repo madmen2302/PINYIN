@@ -4818,3 +4818,248 @@ async function startHskPractice(level, category) {
     hskModalEl.classList.remove('active');
     openGamesHub(cards);
 }
+
+// ===================================
+// ============ KARAOKE ==============
+// ===================================
+// Search a Chinese song (via the server's NetEase proxy), pull its time-coded
+// lyrics + translation, and sing along: every line shows tone-colored pinyin
+// and English, with the current line highlighted on a tap-to-start timer
+// (play the actual song on your own player and hit ▶ in sync).
+
+let karaokeOverlayEl = null;
+const karaoke = { lines: [], playing: false, elapsed: 0, base: 0, startedAt: 0, raf: null, activeIdx: -1 };
+
+const karaokeBtn = document.getElementById('karaoke-btn');
+if (karaokeBtn) karaokeBtn.addEventListener('click', openKaraoke);
+
+// Tone-colored ruby for one line (chars only; punctuation passes through).
+function renderRubyLine(text) {
+    let inner = '';
+    for (const ch of text) {
+        if (chineseCharRegex.test(ch)) {
+            const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'symbol' }) : '';
+            inner += `<ruby class="rd-char tone-${readerToneNumber(ch)}">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+        } else {
+            inner += escapeHtml(ch);
+        }
+    }
+    return inner;
+}
+
+function parseLrc(lrc) {
+    const out = [];
+    for (const raw of (lrc || '').split('\n')) {
+        const stamps = [...raw.matchAll(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g)];
+        const text = raw.replace(/\[[^\]]*\]/g, '').trim();
+        if (!text || stamps.length === 0) continue;
+        for (const s of stamps) {
+            const sec = (+s[1]) * 60 + (+s[2]) + (s[3] ? +('0.' + s[3]) : 0);
+            out.push({ t: sec, text });
+        }
+    }
+    return out.sort((a, b) => a.t - b.t);
+}
+
+function ensureKaraokeOverlay() {
+    if (karaokeOverlayEl) return karaokeOverlayEl;
+    karaokeOverlayEl = document.createElement('div');
+    karaokeOverlayEl.id = 'karaoke-overlay';
+    karaokeOverlayEl.innerHTML = `
+        <div class="kara-topbar">
+            <h3 id="kara-title">Karaoke</h3>
+            <button class="modal-btn" id="kara-back" style="display:none;">Search</button>
+            <button class="modal-btn" id="kara-close">Close</button>
+        </div>
+        <div id="kara-search-view">
+            <div class="kara-search">
+                <input type="search" id="kara-input" placeholder="Search a song or artist…">
+                <button class="modal-btn primary" id="kara-search-btn">Search</button>
+            </div>
+            <div class="kara-results" id="kara-results"></div>
+        </div>
+        <div class="kara-player" id="kara-player" style="display:none;"></div>
+        <div class="kara-transport" id="kara-transport" style="display:none;">
+            <button class="kara-play-btn" id="kara-play">▶</button>
+            <span class="kara-time" id="kara-time">0:00</span>
+        </div>`;
+    document.body.appendChild(karaokeOverlayEl);
+    karaokeOverlayEl.querySelector('#kara-close').addEventListener('click', closeKaraoke);
+    karaokeOverlayEl.querySelector('#kara-back').addEventListener('click', showKaraokeSearch);
+    karaokeOverlayEl.querySelector('#kara-search-btn').addEventListener('click', () => searchSongs());
+    karaokeOverlayEl.querySelector('#kara-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchSongs(); });
+    karaokeOverlayEl.querySelector('#kara-play').addEventListener('click', toggleKaraokePlay);
+    return karaokeOverlayEl;
+}
+
+function openKaraoke() {
+    ensureKaraokeOverlay();
+    showKaraokeSearch();
+    karaokeOverlayEl.classList.add('active');
+    karaokeOverlayEl.querySelector('#kara-input').focus();
+}
+
+function closeKaraoke() {
+    stopKaraokeTimer();
+    if (karaokeOverlayEl) karaokeOverlayEl.classList.remove('active');
+}
+
+function showKaraokeSearch() {
+    stopKaraokeTimer();
+    karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'block';
+    karaokeOverlayEl.querySelector('#kara-player').style.display = 'none';
+    karaokeOverlayEl.querySelector('#kara-transport').style.display = 'none';
+    karaokeOverlayEl.querySelector('#kara-back').style.display = 'none';
+    karaokeOverlayEl.querySelector('#kara-title').textContent = 'Karaoke';
+}
+
+async function searchSongs() {
+    const q = karaokeOverlayEl.querySelector('#kara-input').value.trim();
+    if (!q) return;
+    const results = karaokeOverlayEl.querySelector('#kara-results');
+    results.innerHTML = `<p class="info" style="text-align:center;">Searching…</p>`;
+    try {
+        const resp = await fetch(`${backendUrl}/song-search?q=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Search failed.');
+        if (!data.songs || data.songs.length === 0) {
+            results.innerHTML = `<p class="info" style="text-align:center;">No songs found.</p>`;
+            return;
+        }
+        results.innerHTML = data.songs.map(s => `
+            <div class="kara-result" data-id="${s.id}" data-name="${escapeHtml(s.name)} — ${escapeHtml(s.artist)}">
+                <div><div class="kara-result-name">${escapeHtml(s.name)}</div><div class="kara-result-artist">${escapeHtml(s.artist)}</div></div>
+            </div>`).join('');
+        results.querySelectorAll('.kara-result').forEach(el => el.addEventListener('click', () => selectSong(el.dataset.id, el.dataset.name)));
+    } catch (e) {
+        results.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+async function selectSong(id, name) {
+    const player = karaokeOverlayEl.querySelector('#kara-player');
+    player.innerHTML = `<p class="info">Loading lyrics…</p>`;
+    try {
+        const resp = await fetch(`${backendUrl}/song-lyric?id=${encodeURIComponent(id)}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Could not load lyrics.');
+        const lines = parseLrc(data.lrc);
+        if (lines.length === 0) throw new Error('No time-synced lyrics available for this song.');
+        const transMap = {};
+        for (const l of parseLrc(data.tlyric)) transMap[l.t.toFixed(1)] = l.text;
+        renderKaraokePlayer(name, lines, transMap);
+    } catch (e) {
+        player.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
+        karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'none';
+        karaokeOverlayEl.querySelector('#kara-player').style.display = 'block';
+        karaokeOverlayEl.querySelector('#kara-back').style.display = 'inline-block';
+    }
+}
+
+function renderKaraokePlayer(name, lines, transMap) {
+    karaoke.lines = lines;
+    karaoke.elapsed = 0;
+    karaoke.base = 0;
+    karaoke.activeIdx = -1;
+    karaoke.playing = false;
+
+    karaokeOverlayEl.querySelector('#kara-title').textContent = name;
+    karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'none';
+    karaokeOverlayEl.querySelector('#kara-back').style.display = 'inline-block';
+    const player = karaokeOverlayEl.querySelector('#kara-player');
+    const transport = karaokeOverlayEl.querySelector('#kara-transport');
+    player.style.display = 'block';
+    transport.style.display = 'flex';
+    karaokeOverlayEl.querySelector('#kara-play').textContent = '▶';
+
+    player.innerHTML =
+        `<p class="kara-hint">Play the song on your own music app, then tap ▶ in sync. Tap any line to jump.</p>` +
+        lines.map((l, i) => {
+            const en = transMap[l.t.toFixed(1)];
+            return `<div class="kara-line" data-i="${i}" data-t="${l.t}" data-zh="${escapeHtml(l.text)}">
+                <div class="kara-zh">${renderRubyLine(l.text)}</div>
+                <div class="kara-en">${en ? escapeHtml(en) : ''}</div>
+            </div>`;
+        }).join('');
+    player.querySelectorAll('.kara-line').forEach(el => el.addEventListener('click', () => seekKaraoke(parseFloat(el.dataset.t))));
+    updateKaraokeTime(0);
+}
+
+function toggleKaraokePlay() {
+    if (karaoke.playing) {
+        stopKaraokeTimer();
+    } else {
+        karaoke.playing = true;
+        karaoke.base = karaoke.elapsed;
+        karaoke.startedAt = performance.now();
+        karaokeOverlayEl.querySelector('#kara-play').textContent = '⏸';
+        karaokeTick();
+    }
+}
+
+function stopKaraokeTimer() {
+    karaoke.playing = false;
+    if (karaoke.raf) { cancelAnimationFrame(karaoke.raf); karaoke.raf = null; }
+    if (karaokeOverlayEl) {
+        const btn = karaokeOverlayEl.querySelector('#kara-play');
+        if (btn) btn.textContent = '▶';
+    }
+}
+
+function seekKaraoke(t) {
+    karaoke.elapsed = Math.max(0, t);
+    karaoke.base = karaoke.elapsed;
+    karaoke.startedAt = performance.now();
+    highlightKaraoke();
+    updateKaraokeTime(karaoke.elapsed);
+}
+
+function karaokeTick() {
+    if (!karaoke.playing) return;
+    karaoke.elapsed = karaoke.base + (performance.now() - karaoke.startedAt) / 1000;
+    highlightKaraoke();
+    updateKaraokeTime(karaoke.elapsed);
+    karaoke.raf = requestAnimationFrame(karaokeTick);
+}
+
+function highlightKaraoke() {
+    let idx = -1;
+    for (let i = 0; i < karaoke.lines.length; i++) {
+        if (karaoke.lines[i].t <= karaoke.elapsed + 0.15) idx = i; else break;
+    }
+    if (idx === karaoke.activeIdx) return;
+    karaoke.activeIdx = idx;
+    const player = karaokeOverlayEl.querySelector('#kara-player');
+    player.querySelectorAll('.kara-line.active').forEach(el => el.classList.remove('active'));
+    if (idx >= 0) {
+        const el = player.querySelector(`.kara-line[data-i="${idx}"]`);
+        if (el) {
+            el.classList.add('active');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            translateKaraokeLine(el);
+            // Prefetch the next line's translation so it's ready.
+            translateKaraokeLine(player.querySelector(`.kara-line[data-i="${idx + 1}"]`));
+        }
+    }
+}
+
+// Lazily translate a lyric line (only lines you reach; cached server-side).
+async function translateKaraokeLine(el) {
+    if (!el) return;
+    const enEl = el.querySelector('.kara-en');
+    if (!enEl || enEl.textContent.trim() || enEl.dataset.pending) return;
+    enEl.dataset.pending = '1';
+    try {
+        enEl.textContent = await translateText(el.dataset.zh, 'EN');
+    } catch (_) {
+        delete enEl.dataset.pending; // allow retry
+    }
+}
+
+function updateKaraokeTime(sec) {
+    const el = karaokeOverlayEl.querySelector('#kara-time');
+    if (!el) return;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    el.textContent = `${m}:${String(s).padStart(2, '0')}`;
+}

@@ -112,6 +112,8 @@ app.use('/enhance', aiLimiter);
 app.use('/radical-info', aiLimiter);
 app.use('/ocr', aiLimiter);
 app.use('/realtime-session', aiLimiter);
+app.use('/song-search', utilityLimiter);
+app.use('/song-lyric', utilityLimiter);
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
@@ -441,6 +443,45 @@ app.post('/ocr', upload.single('image'), async (req, res) => {
     } catch (error) {
         console.error('Error during OCR:', error.message);
         res.status(502).json({ error: `OCR failed: ${error.message}` });
+    }
+});
+
+// === Karaoke: proxy NetEase Cloud Music (the VPS can reach it; the client can't) ===
+const NETEASE_HEADERS = { 'Referer': 'https://music.163.com', 'User-Agent': 'Mozilla/5.0' };
+
+app.get('/song-search', async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(400).json({ error: 'Missing query.' });
+    try {
+        const resp = await fetch('https://music.163.com/api/search/get', {
+            method: 'POST',
+            headers: { ...NETEASE_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ s: q, type: '1', limit: '12', offset: '0' }).toString()
+        });
+        const data = await resp.json();
+        const songs = (data?.result?.songs || []).map(s => ({
+            id: s.id,
+            name: s.name,
+            artist: (s.artists || []).map(a => a.name).join(', '),
+            album: s.album?.name || ''
+        }));
+        res.json({ songs });
+    } catch (error) {
+        console.error('Song search error:', error.message);
+        res.status(502).json({ error: 'Song search failed.' });
+    }
+});
+
+app.get('/song-lyric', async (req, res) => {
+    const id = (req.query.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Missing id.' });
+    try {
+        const resp = await fetch(`https://music.163.com/api/song/lyric?os=pc&id=${encodeURIComponent(id)}&lv=-1&kv=-1&tv=-1`, { headers: NETEASE_HEADERS });
+        const data = await resp.json();
+        res.json({ lrc: data?.lrc?.lyric || '', tlyric: data?.tlyric?.lyric || '' });
+    } catch (error) {
+        console.error('Song lyric error:', error.message);
+        res.status(502).json({ error: 'Could not fetch lyrics.' });
     }
 });
 
