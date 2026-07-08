@@ -4899,6 +4899,7 @@ function ensureKaraokeOverlay() {
                 <input type="search" id="kara-input" placeholder="Search a song or artist…">
                 <button class="modal-btn primary" id="kara-search-btn">Search</button>
             </div>
+            <button class="modal-btn" id="kara-identify" style="display:block; margin:0 auto 0.5rem;">🎧 Identify the song playing now</button>
             <div class="kara-results" id="kara-results"></div>
         </div>
         <div class="kara-player" id="kara-player" style="display:none;"></div>
@@ -4912,7 +4913,54 @@ function ensureKaraokeOverlay() {
     karaokeOverlayEl.querySelector('#kara-search-btn').addEventListener('click', () => searchSongs());
     karaokeOverlayEl.querySelector('#kara-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchSongs(); });
     karaokeOverlayEl.querySelector('#kara-play').addEventListener('click', toggleKaraokePlay);
+    karaokeOverlayEl.querySelector('#kara-identify').addEventListener('click', identifySong);
     return karaokeOverlayEl;
+}
+
+// Record ~8s of the song playing, identify it via ACRCloud, then auto-load its
+// lyrics and jump to the recognized position so it plays in sync.
+let identifyRecorder = null;
+async function identifySong() {
+    const results = karaokeOverlayEl.querySelector('#kara-results');
+    const btn = karaokeOverlayEl.querySelector('#kara-identify');
+    if (identifyRecorder) return;
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (_) {
+        results.innerHTML = `<p class="error" style="text-align:center;">Microphone access denied.</p>`;
+        return;
+    }
+    btn.textContent = '🎧 Listening… (8s)';
+    btn.disabled = true;
+    const chunks = [];
+    identifyRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    identifyRecorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    identifyRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        identifyRecorder = null;
+        btn.textContent = '🎧 Identify the song playing now';
+        btn.disabled = false;
+        results.innerHTML = `<p class="info" style="text-align:center;">Identifying…</p>`;
+        try {
+            const fd = new FormData();
+            fd.append('sample', new Blob(chunks, { type: 'audio/webm' }), 'sample.webm');
+            const resp = await fetch(`${backendUrl}/identify-song`, { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'No match.');
+            results.innerHTML = `<p class="info" style="text-align:center;">Found: <strong>${escapeHtml(data.title)}</strong> — ${escapeHtml(data.artist)}. Loading synced lyrics…</p>`;
+            // Find the song on NetEase and auto-open it at the recognized offset.
+            const sResp = await fetch(`${backendUrl}/song-search?q=${encodeURIComponent(data.title + ' ' + data.artist)}`);
+            const sData = await sResp.json();
+            const song = (sData.songs || [])[0];
+            if (!song) throw new Error(`Recognized "${data.title}" but couldn't find its lyrics.`);
+            selectSong(song.id, `${song.name} — ${song.artist}`, (data.offsetMs || 0) / 1000);
+        } catch (e) {
+            results.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
+        }
+    };
+    identifyRecorder.start();
+    setTimeout(() => { if (identifyRecorder && identifyRecorder.state === 'recording') identifyRecorder.stop(); }, 8000);
 }
 
 function openKaraoke() {
@@ -4959,8 +5007,10 @@ async function searchSongs() {
     }
 }
 
-async function selectSong(id, name) {
+async function selectSong(id, name, autoStartSec) {
     const player = karaokeOverlayEl.querySelector('#kara-player');
+    karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'none';
+    player.style.display = 'block';
     player.innerHTML = `<p class="info">Loading lyrics…</p>`;
     try {
         const resp = await fetch(`${backendUrl}/song-lyric?id=${encodeURIComponent(id)}`);
@@ -4971,6 +5021,10 @@ async function selectSong(id, name) {
         const transMap = {};
         for (const l of parseLrc(data.tlyric)) transMap[l.t.toFixed(1)] = l.text;
         renderKaraokePlayer(name, lines, transMap);
+        if (typeof autoStartSec === 'number' && autoStartSec > 0) {
+            seekKaraoke(autoStartSec);
+            toggleKaraokePlay(); // auto-play in sync from the recognized position
+        }
     } catch (e) {
         player.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
         karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'none';

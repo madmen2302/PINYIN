@@ -10,6 +10,7 @@ const fs = require('fs').promises; // Use the promise-based version of fs
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 
 // === Cache Management ===
 const CACHE_LIMIT = 2000;
@@ -114,6 +115,7 @@ app.use('/ocr', aiLimiter);
 app.use('/realtime-session', aiLimiter);
 app.use('/song-search', utilityLimiter);
 app.use('/song-lyric', utilityLimiter);
+app.use('/identify-song', aiLimiter);
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
@@ -489,6 +491,52 @@ app.get('/song-lyric', async (req, res) => {
     } catch (error) {
         console.error('Song lyric error:', error.message);
         res.status(502).json({ error: 'Could not fetch lyrics.' });
+    }
+});
+
+// === Identify a playing song via ACRCloud (returns song + play offset) ===
+// Requires ACR_HOST, ACR_ACCESS_KEY, ACR_ACCESS_SECRET in .env (free account
+// at acrcloud.com -> a "Recognition" / Audio bucket).
+const ACR_HOST = process.env.ACR_HOST;
+const ACR_ACCESS_KEY = process.env.ACR_ACCESS_KEY;
+const ACR_ACCESS_SECRET = process.env.ACR_ACCESS_SECRET;
+
+app.post('/identify-song', upload.single('sample'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No audio sample provided.' });
+    if (!ACR_HOST || !ACR_ACCESS_KEY || !ACR_ACCESS_SECRET) {
+        return res.status(500).json({ error: 'Song identification is not configured (ACRCloud keys missing in .env).' });
+    }
+    try {
+        const method = 'POST', uri = '/v1/identify', dataType = 'audio', sigVersion = '1';
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const stringToSign = [method, uri, ACR_ACCESS_KEY, dataType, sigVersion, timestamp].join('\n');
+        const signature = crypto.createHmac('sha1', ACR_ACCESS_SECRET).update(Buffer.from(stringToSign, 'utf-8')).digest('base64');
+
+        const form = new FormData();
+        form.append('sample', req.file.buffer, { filename: 'sample' });
+        form.append('sample_bytes', req.file.buffer.length.toString());
+        form.append('access_key', ACR_ACCESS_KEY);
+        form.append('data_type', dataType);
+        form.append('signature_version', sigVersion);
+        form.append('signature', signature);
+        form.append('timestamp', timestamp);
+
+        const resp = await fetch(`https://${ACR_HOST}/v1/identify`, { method: 'POST', headers: form.getHeaders(), body: form });
+        const data = await resp.json();
+        if (data?.status?.code !== 0) {
+            return res.status(404).json({ error: data?.status?.msg || 'No song matched.' });
+        }
+        const m = data.metadata?.music?.[0];
+        if (!m) return res.status(404).json({ error: 'No song matched.' });
+        res.json({
+            title: m.title || '',
+            artist: (m.artists || []).map(a => a.name).join(', '),
+            album: m.album?.name || '',
+            offsetMs: m.play_offset_ms || 0
+        });
+    } catch (error) {
+        console.error('ACRCloud error:', error.message);
+        res.status(502).json({ error: 'Song identification failed.' });
     }
 });
 
