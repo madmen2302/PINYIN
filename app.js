@@ -4041,3 +4041,78 @@ function showGameSummary(allCards, type) {
     body.querySelector('#game-replay').addEventListener('click', () => startGame(type, allCards));
     body.querySelector('#game-hub-back').addEventListener('click', () => openGamesHub());
 }
+
+// ===================================
+// ======== IMAGE / CAMERA OCR =======
+// ===================================
+// Extract Chinese text from a photo or uploaded image. Uses the server's
+// OpenAI Vision endpoint by default, and lazy-loads Tesseract.js as an
+// on-device fallback when offline or if the server call fails.
+
+const ocrBtn = document.getElementById('ocr-btn');
+const ocrFileInput = document.getElementById('ocr-file-input');
+let tesseractLoadPromise = null;
+
+if (ocrBtn && ocrFileInput) {
+    ocrBtn.addEventListener('click', () => ocrFileInput.click());
+    ocrFileInput.addEventListener('change', () => {
+        const file = ocrFileInput.files && ocrFileInput.files[0];
+        if (file) handleOcrImage(file);
+        ocrFileInput.value = ''; // allow re-selecting the same file
+    });
+}
+
+async function ocrViaServer(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    const response = await fetch(`${backendUrl}/ocr`, { method: 'POST', body: formData });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Server OCR error');
+    return data.text || '';
+}
+
+function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (tesseractLoadPromise) return tesseractLoadPromise;
+    tesseractLoadPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+        script.onload = () => resolve(window.Tesseract);
+        script.onerror = () => { tesseractLoadPromise = null; reject(new Error('Could not load the offline OCR engine.')); };
+        document.head.appendChild(script);
+    });
+    return tesseractLoadPromise;
+}
+
+async function ocrViaTesseract(file) {
+    const Tesseract = await loadTesseract();
+    const { data } = await Tesseract.recognize(file, 'chi_sim');
+    // On-device Chinese OCR tends to insert spaces between characters; strip them.
+    return (data.text || '').replace(/\s+/g, '');
+}
+
+async function handleOcrImage(file) {
+    processingOverlay.classList.add('visible');
+    let text = '';
+    try {
+        try {
+            text = navigator.onLine ? await ocrViaServer(file) : await ocrViaTesseract(file);
+        } catch (serverErr) {
+            // Fall back to on-device OCR if the server path fails while online.
+            console.warn('Server OCR failed, trying on-device:', serverErr.message);
+            text = await ocrViaTesseract(file);
+        }
+
+        if (text && text.trim()) {
+            const cleaned = text.trim().replace(/\n/g, '。');
+            statsContent.innerHTML = '';
+            await processTranscription(cleaned);
+        } else {
+            processingOverlay.classList.remove('visible');
+            showModal('No text found', 'No Chinese text was detected in that image. Try a clearer, closer photo.');
+        }
+    } catch (error) {
+        processingOverlay.classList.remove('visible');
+        showModal('Scan failed', escapeHtml(error.message || 'Could not read the image.'));
+    }
+}

@@ -110,6 +110,7 @@ const utilityLimiter = rateLimit({
 app.use('/transcribe', aiLimiter);
 app.use('/enhance', aiLimiter);
 app.use('/radical-info', aiLimiter);
+app.use('/ocr', aiLimiter);
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
@@ -323,6 +324,33 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
     } catch (error) {
         console.error('Error proxying to Whisper:', error);
         res.status(500).json({ error: `Whisper API error: ${error.message}` });
+    }
+});
+
+// === OCR: extract Chinese text from an uploaded image via OpenAI Vision ===
+app.post('/ocr', upload.single('image'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No image provided.' });
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+
+    try {
+        const base64 = req.file.buffer.toString('base64');
+        const dataUrl = `data:${req.file.mimetype || 'image/jpeg'};base64,${base64}`;
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            max_tokens: 1200,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'Extract all Chinese text from this image. Return ONLY the Chinese text exactly as it appears, preserving line breaks between separate lines. Do not add pinyin, translation, or any commentary. If there is no Chinese text, return an empty string.' },
+                    { type: 'image_url', image_url: { url: dataUrl } }
+                ]
+            }]
+        });
+        const text = completion.choices[0]?.message?.content?.trim() || '';
+        res.json({ text });
+    } catch (error) {
+        console.error('Error during OCR:', error.message);
+        res.status(502).json({ error: `OCR failed: ${error.message}` });
     }
 });
 
