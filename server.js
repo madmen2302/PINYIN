@@ -123,6 +123,36 @@ if (!DEEPL_API_KEY || !OPENAI_API_KEY) {
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+// === Persistent translation cache ===
+// Stores every exact (target_lang, text) -> translation so repeated sentences
+// never hit DeepL again. It is a growing lookup table (not a model): it only
+// helps for text it has seen before, but it survives restarts and shrinks the
+// quota used on re-reads and common phrases over time.
+const TRANSLATION_CACHE_FILE = path.join(__dirname, 'translation-cache.json');
+let translationCache = {};
+let translationCacheDirty = false;
+
+async function loadTranslationCache() {
+    try {
+        const raw = await fs.readFile(TRANSLATION_CACHE_FILE, 'utf8');
+        translationCache = JSON.parse(raw) || {};
+        console.log(`✅ Loaded ${Object.keys(translationCache).length} cached translations.`);
+    } catch (_) {
+        translationCache = {};
+    }
+}
+
+async function saveTranslationCache() {
+    if (!translationCacheDirty) return;
+    translationCacheDirty = false;
+    try {
+        await fs.writeFile(TRANSLATION_CACHE_FILE, JSON.stringify(translationCache), 'utf8');
+    } catch (e) {
+        console.warn('Could not persist translation cache:', e.message);
+    }
+}
+setInterval(saveTranslationCache, 30 * 1000); // flush at most every 30s
+
 // === Routes ===
 
 app.post('/translate', async (req, res) => {
@@ -130,6 +160,12 @@ app.post('/translate', async (req, res) => {
     if (!text || !target_lang) return res.status(400).json({ error: 'Missing parameters' });
     
     if (!DEEPL_API_KEY) return res.status(500).json({ error: 'DeepL API key not configured on server.' });
+
+    // Serve from the persistent cache when we've translated this exact text before.
+    const cacheKey = `${target_lang} ${text}`;
+    if (translationCache[cacheKey]) {
+        return res.json({ translations: [{ text: translationCache[cacheKey], detected_source_language: '' }] });
+    }
 
     const url = 'https://api-free.deepl.com/v2/translate';
     try {
@@ -156,6 +192,11 @@ app.post('/translate', async (req, res) => {
         if (!data) {
             console.error('DeepL returned an empty/invalid body.');
             return res.status(502).json({ error: 'DeepL returned an empty or invalid response.' });
+        }
+        const translated = data?.translations?.[0]?.text;
+        if (translated) {
+            translationCache[cacheKey] = translated;
+            translationCacheDirty = true;
         }
         res.json(data);
     } catch (error) {
@@ -434,6 +475,7 @@ app.post('/save-custom-db', async (req, res) => {
 async function startServer() {
     // Wait for the decomposition data to be fetched and parsed before starting the server.
     await loadDecompositionData();
+    await loadTranslationCache();
 
     app.listen(PORT, () => {
         console.log(`✅ Server is running on http://localhost:${PORT}`);

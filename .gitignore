@@ -8,3 +8,6 @@ _OLD_MESS/
 
 # Dependencies (Too heavy for Git)
 node_modules/
+
+# Runtime data (lives on the server, grows over time)
+translation-cache.json
