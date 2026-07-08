@@ -392,7 +392,11 @@ app.post('/realtime-session', async (req, res) => {
                     type: 'realtime',
                     model: REALTIME_MODEL,
                     instructions: TUTOR_INSTRUCTIONS,
-                    audio: { output: { voice: REALTIME_VOICE } }
+                    audio: {
+                        // Transcribe the learner's speech so the client can show it.
+                        input: { transcription: { model: 'whisper-1' } },
+                        output: { voice: REALTIME_VOICE }
+                    }
                 }
             })
         });

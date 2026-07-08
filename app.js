@@ -1052,7 +1052,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
                     for (const char of word) {
                         if (chineseCharRegex.test(char)) {
                             currentCharacterStats[char] = (currentCharacterStats[char] || 0) + 1;
-                            let charDef = dictionary ? dictionary[char] : null;
+                            let charDef = (useEnhancedDefs && enhancedDefsData && enhancedDefsData[char]) ? enhancedDefsData[char] : (dictionary ? dictionary[char] : null);
                             let charPinyin = window.pinyinPro ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : '';
                             let shortCharDef = 'n/a';
                             let fullCharDef = 'n/a';
@@ -1472,8 +1472,11 @@ async function enhanceDefinitions() {
         });
         const enhancedDefsData = await response.json();
         if (!response.ok) throw new Error(enhancedDefsData.error || 'Enhance API error');
-        await processTranscription(session.transcription, 'zh', true, enhancedDefsData);
+        // Re-render from the Chinese text (not the original input, which may be
+        // English) so the AI's per-character definitions line up with the text.
+        await processTranscription(session.chineseText, 'zh', true, enhancedDefsData);
         revertBtn.style.display = 'inline-block';
+        enhanceBtn.style.display = 'none'; // hide only on success
     } catch (error) {
         console.error("Enhance failed:", error);
         session.breakdownHtml = oldBreakdown;
@@ -1482,14 +1485,13 @@ async function enhanceDefinitions() {
     } finally {
         enhanceBtn.disabled = false;
         enhanceBtn.classList.remove('working');
-        enhanceBtn.style.display = 'none';
     }
 }
 function revertDefinitions() {
     const session = findSessionById(currentSessionId);
     if (!session) return;
     revertBtn.disabled = true;
-    processTranscription(session.transcription, 'zh', true, null);
+    processTranscription(session.chineseText, 'zh', true, null);
     revertBtn.disabled = false;
     revertBtn.style.display = 'none';
     enhanceBtn.style.display = 'inline-block';
@@ -4246,6 +4248,7 @@ function ensureTutorModal() {
             <div id="tutor-orb" class="tutor-orb"></div>
             <div id="tutor-status" class="tutor-status">Tap start, then just speak in Chinese — your AI tutor replies out loud.</div>
             <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
+            <div id="tutor-transcript" class="tutor-transcript"></div>
             <audio id="tutor-audio" autoplay></audio>
         </div>`;
     document.body.appendChild(tutorModalEl);
@@ -4263,6 +4266,7 @@ function openVoiceTutor() {
     toggle.textContent = 'Start conversation';
     toggle.classList.remove('recording');
     tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
+    tutorModalEl.querySelector('#tutor-transcript').innerHTML = '';
     tutorModalEl.classList.add('active');
 }
 
@@ -4295,6 +4299,7 @@ async function startTutor() {
         // 4. Data channel (events). Greet the learner once it opens.
         const dc = tutorPc.createDataChannel('oai-events');
         dc.onopen = () => { try { dc.send(JSON.stringify({ type: 'response.create' })); } catch (_) { /* ignore */ } };
+        dc.onmessage = (e) => { try { handleTutorEvent(JSON.parse(e.data)); } catch (_) { /* ignore non-JSON */ } };
 
         // 5. SDP offer -> OpenAI Realtime -> answer.
         const offer = await tutorPc.createOffer();
@@ -4332,4 +4337,42 @@ function stopTutor(silent) {
         tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
         tutorModalEl.querySelector('#tutor-status').textContent = 'Conversation ended. Tap start to go again.';
     }
+}
+
+// Realtime events carry transcripts of both sides. Render each as Chinese +
+// pinyin (local) + English (translated, cached). Event names vary slightly by
+// API version, so we match a few.
+function handleTutorEvent(evt) {
+    if (!evt || !evt.type) return;
+    if (evt.type === 'conversation.item.input_audio_transcription.completed' && evt.transcript) {
+        addTutorTranscriptLine('you', evt.transcript);
+    } else if ((evt.type === 'response.audio_transcript.done' || evt.type === 'response.output_audio_transcript.done') && evt.transcript) {
+        addTutorTranscriptLine('tutor', evt.transcript);
+    }
+}
+
+async function addTutorTranscriptLine(who, chinese) {
+    chinese = (chinese || '').trim();
+    if (!chinese || !tutorModalEl) return;
+    const wrap = tutorModalEl.querySelector('#tutor-transcript');
+    if (!wrap) return;
+    const pinyin = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(chinese, { toneType: 'symbol' }) : '';
+    const line = document.createElement('div');
+    line.className = `tutor-line ${who}`;
+    line.innerHTML = `
+        <div class="tutor-line-who">${who === 'you' ? 'You' : 'Tutor'}</div>
+        <div class="tutor-line-zh">${escapeHtml(chinese)}</div>
+        <div class="tutor-line-py">${escapeHtml(pinyin)}</div>
+        <div class="tutor-line-en loading">…</div>`;
+    wrap.appendChild(line);
+    wrap.scrollTop = wrap.scrollHeight;
+    const enEl = line.querySelector('.tutor-line-en');
+    try {
+        const en = await translateText(chinese, 'EN');
+        enEl.textContent = en;
+    } catch (_) {
+        enEl.textContent = '(translation unavailable)';
+    }
+    enEl.classList.remove('loading');
+    wrap.scrollTop = wrap.scrollHeight;
 }
