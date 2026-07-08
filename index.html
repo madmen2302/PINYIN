@@ -781,6 +781,42 @@
         #subs-video { width: 100%; max-height: 42vh; background: #000; display: none; }
         #subs-video.loaded { display: block; }
 
+        /* ================================================================
+           POLISH LAYER — refinement sweep, kept last.
+           ================================================================ */
+        body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+        h1, h2, h3, h4 { letter-spacing: -0.01em; }
+
+        /* Consistent status text (these classes were used everywhere but unstyled) */
+        .info { color: var(--text-secondary); }
+        .error { color: var(--danger-color); }
+
+        /* Roomy, scrollable modal cards so tall panels never overflow small screens */
+        #modal-content, .modal-content { max-height: 90vh; overflow-y: auto; }
+
+        /* Entrance motion */
+        @keyframes pop-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .main-modal.active #modal-content, .main-modal.active .modal-content { animation: pop-in 0.28s var(--ease-spring); }
+        #reader-overlay.active, #karaoke-overlay.active, #subs-overlay.active { animation: fade-in 0.25s ease; }
+
+        /* Softer, breathing loading state */
+        .loading { animation: loading-pulse 1.3s ease-in-out infinite; }
+        @keyframes loading-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+        /* Visible keyboard focus */
+        :focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; border-radius: 8px; }
+
+        /* Respect users who prefer reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
         @media (max-width: 520px) { .quiz-prompt { font-size: 3.5rem; } .quiz-options { grid-template-columns: 1fr; } }
     </style>
 </head>
