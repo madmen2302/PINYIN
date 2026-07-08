@@ -3779,6 +3779,12 @@ function gameShuffle(arr) {
     return a;
 }
 
+// A "what the answer was" line for game feedback: character, pinyin, meaning.
+function gameCardInfoHtml(card) {
+    const py = card.pinyin || (window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(card.char, { toneType: 'symbol' }) : '');
+    return `<span class="game-answer"><span class="game-answer-char">${escapeHtml(card.char)}</span> <span class="game-answer-py">${escapeHtml(py)}</span>${card.def ? ` — ${escapeHtml(card.def)}` : ''}</span>`;
+}
+
 function speakOnce(text) {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
@@ -3988,8 +3994,9 @@ function showQuizRound(allCards) {
         if (isCorrect) gs.score++; else btn.classList.add('wrong');
         if (card._card) updateCardStats(card._card, isCorrect);
         if (isCorrect && card._hsk) markHskLearned(card._hsk);
+        body.querySelector('#game-feedback').innerHTML = gameCardInfoHtml(card);
         gs.index++;
-        setTimeout(() => showQuizRound(allCards), 900);
+        setTimeout(() => showQuizRound(allCards), 1700);
     }));
 }
 
@@ -4031,8 +4038,9 @@ function showListenRound(allCards) {
         if (isCorrect) gs.score++; else btn.classList.add('wrong');
         if (card._card) updateCardStats(card._card, isCorrect);
         if (isCorrect && card._hsk) markHskLearned(card._hsk);
+        body.querySelector('#game-feedback').innerHTML = gameCardInfoHtml(card);
         gs.index++;
-        setTimeout(() => showListenRound(allCards), 1000);
+        setTimeout(() => showListenRound(allCards), 1800);
     }));
 }
 
@@ -4123,9 +4131,10 @@ async function evaluateSpeech(btn, card, allCards) {
         if (correct) gameSession.score++;
         if (card._card) updateCardStats(card._card, correct);
         if (correct && card._hsk) markHskLearned(card._hsk);
-        fb.innerHTML = correct
+        fb.innerHTML = (correct
             ? `<span style="color:var(--success-color); font-weight:700;">✅ Nice! Heard: ${escapeHtml(heard)}</span>`
-            : `<span style="color:var(--danger-color); font-weight:700;">Heard: ${escapeHtml(heard)} — try again</span>`;
+            : `<span style="color:var(--danger-color); font-weight:700;">Heard: ${escapeHtml(heard)} — try again</span>`)
+            + `<br>${gameCardInfoHtml(card)}`;
         const nextWrap = gamesModalEl.querySelector('#speak-next-wrap');
         nextWrap.innerHTML = `<button class="modal-btn primary" id="speak-next">Next ›</button>`;
         nextWrap.querySelector('#speak-next').addEventListener('click', () => { gameSession.index++; showSpeakRound(allCards); });
@@ -4575,13 +4584,27 @@ function renderReaderParagraph(text, known) {
             const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'symbol' }) : '';
             const tone = readerToneNumber(ch);
             const newClass = known && !known.has(ch) ? ' new-char' : '';
-            inner += `<ruby class="rd-char tone-${tone}${newClass}" onclick="window.showStrokes('${ch}')">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+            inner += `<ruby class="rd-char tone-${tone}${newClass}" onclick="window.readerCharInfo('${ch}')">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
         } else {
             inner += escapeHtml(ch);
         }
     }
     return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-translate" onclick="window.readerTranslate(this)">译</button><span class="rd-en"></span></p>`;
 }
+
+// Lightweight tap card for the reader: pinyin + full definition instantly
+// (local, no API), with a button to the full stroke view.
+window.readerCharInfo = (char) => {
+    const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : '';
+    const full = (dictionary && dictionary[char]) ? dictionary[char] : '(no dictionary entry)';
+    showModal('', `
+        <div class="char-info-card">
+            <div class="char-info-hanzi">${escapeHtml(char)}</div>
+            <div class="char-info-py">${escapeHtml(py)}</div>
+            <div class="char-info-def">${escapeHtml(full)}</div>
+            <button class="modal-btn primary" onclick="window.showStrokes('${char}')">Stroke order &amp; components</button>
+        </div>`);
+};
 
 window.readerTranslate = async (btn) => {
     const para = btn.closest('.rd-para');
@@ -4906,7 +4929,7 @@ function closeKaraoke() {
 
 function showKaraokeSearch() {
     stopKaraokeTimer();
-    karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'block';
+    karaokeOverlayEl.querySelector('#kara-search-view').style.display = 'flex';
     karaokeOverlayEl.querySelector('#kara-player').style.display = 'none';
     karaokeOverlayEl.querySelector('#kara-transport').style.display = 'none';
     karaokeOverlayEl.querySelector('#kara-back').style.display = 'none';
@@ -4928,7 +4951,7 @@ async function searchSongs() {
         }
         results.innerHTML = data.songs.map(s => `
             <div class="kara-result" data-id="${s.id}" data-name="${escapeHtml(s.name)} — ${escapeHtml(s.artist)}">
-                <div><div class="kara-result-name">${escapeHtml(s.name)}</div><div class="kara-result-artist">${escapeHtml(s.artist)}</div></div>
+                <div><div class="kara-result-name">${escapeHtml(s.name)}</div><div class="kara-result-artist">${escapeHtml(s.artist)}${s.album ? ' · ' + escapeHtml(s.album) : ''}</div></div>
             </div>`).join('');
         results.querySelectorAll('.kara-result').forEach(el => el.addEventListener('click', () => selectSong(el.dataset.id, el.dataset.name)));
     } catch (e) {
@@ -5058,6 +5081,182 @@ async function translateKaraokeLine(el) {
 
 function updateKaraokeTime(sec) {
     const el = karaokeOverlayEl.querySelector('#kara-time');
+    if (!el) return;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    el.textContent = `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// ===================================
+// ======== SUBTITLES (TV/FILM) ======
+// ===================================
+// Load an .srt/.ass/.vtt for a show and get a synced, tappable Chinese
+// transcript (tone-colored pinyin + lazy English). Follow along by tapping ▶
+// in sync with whatever you're watching, or load the video file to auto-sync.
+
+let subsOverlayEl = null;
+const subs = { cues: [], playing: false, elapsed: 0, base: 0, startedAt: 0, raf: null, activeIdx: -1, video: null };
+
+const subsBtn = document.getElementById('subs-btn');
+const subsFileInput = document.getElementById('subs-file-input');
+const subsVideoInput = document.getElementById('subs-video-input');
+if (subsBtn && subsFileInput) {
+    subsBtn.addEventListener('click', () => subsFileInput.click());
+    subsFileInput.addEventListener('change', () => { const f = subsFileInput.files && subsFileInput.files[0]; if (f) handleSubsFile(f); subsFileInput.value = ''; });
+}
+if (subsVideoInput) subsVideoInput.addEventListener('change', () => { const f = subsVideoInput.files && subsVideoInput.files[0]; if (f) loadSubsVideo(f); subsVideoInput.value = ''; });
+
+function parseSrt(text) {
+    const cues = [];
+    for (const block of text.replace(/\r/g, '').split(/\n\n+/)) {
+        const m = block.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+        if (!m) continue;
+        const start = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
+        const lines = block.split('\n');
+        const idx = lines.findIndex(l => l.includes('-->'));
+        const txt = lines.slice(idx + 1).join(' ').replace(/<[^>]+>/g, '').replace(/\{[^}]*\}/g, '').trim();
+        if (txt && chineseCharRegex.test(txt)) cues.push({ t: start, text: txt });
+    }
+    return cues.sort((a, b) => a.t - b.t);
+}
+
+function parseAss(text) {
+    const cues = [];
+    const assTime = (s) => { const m = (s || '').trim().match(/(\d+):(\d+):(\d+)[.:](\d+)/); return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 100 : 0; };
+    for (const raw of text.split(/\r?\n/)) {
+        if (!raw.startsWith('Dialogue:')) continue;
+        const parts = raw.slice(9).split(',');
+        if (parts.length < 10) continue;
+        const start = assTime(parts[1]);
+        const txt = parts.slice(9).join(',').replace(/\{[^}]*\}/g, '').replace(/\\N/gi, ' ').replace(/<[^>]+>/g, '').trim();
+        if (txt && chineseCharRegex.test(txt)) cues.push({ t: start, text: txt });
+    }
+    return cues.sort((a, b) => a.t - b.t);
+}
+
+async function handleSubsFile(file) {
+    const name = (file.name || '').toLowerCase();
+    let text;
+    try { text = await file.text(); } catch (_) { showModal('Could not read file', 'Please try another subtitle file.'); return; }
+    const cues = (name.endsWith('.ass') || name.endsWith('.ssa')) ? parseAss(text) : parseSrt(text);
+    if (cues.length === 0) { showModal('No subtitles', 'No Chinese subtitle lines found in that file.'); return; }
+    renderSubsPlayer(file.name.replace(/\.[^.]+$/, ''), cues);
+}
+
+function ensureSubsOverlay() {
+    if (subsOverlayEl) return subsOverlayEl;
+    subsOverlayEl = document.createElement('div');
+    subsOverlayEl.id = 'subs-overlay';
+    subsOverlayEl.innerHTML = `
+        <div class="kara-topbar">
+            <h3 id="subs-title">Subtitles</h3>
+            <button class="modal-btn" id="subs-load-video">Load video</button>
+            <button class="modal-btn" id="subs-close">Close</button>
+        </div>
+        <video id="subs-video" controls playsinline></video>
+        <div class="kara-player" id="subs-player"></div>
+        <div class="kara-transport" id="subs-transport">
+            <button class="kara-play-btn" id="subs-play">▶</button>
+            <span class="kara-time" id="subs-time">0:00</span>
+        </div>`;
+    document.body.appendChild(subsOverlayEl);
+    subsOverlayEl.querySelector('#subs-close').addEventListener('click', closeSubs);
+    subsOverlayEl.querySelector('#subs-load-video').addEventListener('click', () => subsVideoInput.click());
+    subsOverlayEl.querySelector('#subs-play').addEventListener('click', toggleSubsPlay);
+    subs.video = subsOverlayEl.querySelector('#subs-video');
+    subs.video.addEventListener('timeupdate', () => {
+        if (!subs.video.classList.contains('loaded')) return;
+        subs.elapsed = subs.video.currentTime;
+        highlightSubs();
+        updateSubsTime(subs.elapsed);
+    });
+    return subsOverlayEl;
+}
+
+function closeSubs() {
+    stopSubsTimer();
+    if (subs.video) { try { subs.video.pause(); } catch (_) {} }
+    if (subsOverlayEl) subsOverlayEl.classList.remove('active');
+}
+
+function renderSubsPlayer(name, cues) {
+    ensureSubsOverlay();
+    subs.cues = cues;
+    subs.elapsed = 0; subs.base = 0; subs.activeIdx = -1; subs.playing = false;
+    subsOverlayEl.querySelector('#subs-title').textContent = name;
+    subsOverlayEl.querySelector('#subs-play').textContent = '▶';
+    const player = subsOverlayEl.querySelector('#subs-player');
+    player.innerHTML =
+        `<p class="kara-hint">Tap ▶ in sync with what you're watching, or “Load video” to auto-sync. Tap a line to jump.</p>` +
+        cues.map((c, i) => `<div class="kara-line" data-i="${i}" data-t="${c.t}" data-zh="${escapeHtml(c.text)}">
+            <div class="kara-zh">${renderRubyLine(c.text)}</div>
+            <div class="kara-en"></div>
+        </div>`).join('');
+    player.querySelectorAll('.kara-line').forEach(el => el.addEventListener('click', () => seekSubs(parseFloat(el.dataset.t))));
+    updateSubsTime(0);
+    subsOverlayEl.classList.add('active');
+}
+
+function loadSubsVideo(file) {
+    ensureSubsOverlay();
+    stopSubsTimer();
+    subs.video.src = URL.createObjectURL(file);
+    subs.video.classList.add('loaded');
+    subsOverlayEl.querySelector('#subs-transport').style.display = 'none'; // video controls drive sync now
+}
+
+function toggleSubsPlay() {
+    if (subs.playing) { stopSubsTimer(); return; }
+    subs.playing = true;
+    subs.base = subs.elapsed;
+    subs.startedAt = performance.now();
+    subsOverlayEl.querySelector('#subs-play').textContent = '⏸';
+    subsTick();
+}
+
+function stopSubsTimer() {
+    subs.playing = false;
+    if (subs.raf) { cancelAnimationFrame(subs.raf); subs.raf = null; }
+    if (subsOverlayEl) { const b = subsOverlayEl.querySelector('#subs-play'); if (b) b.textContent = '▶'; }
+}
+
+function seekSubs(t) {
+    subs.elapsed = Math.max(0, t);
+    subs.base = subs.elapsed;
+    subs.startedAt = performance.now();
+    if (subs.video && subs.video.classList.contains('loaded')) subs.video.currentTime = subs.elapsed;
+    highlightSubs();
+    updateSubsTime(subs.elapsed);
+}
+
+function subsTick() {
+    if (!subs.playing) return;
+    subs.elapsed = subs.base + (performance.now() - subs.startedAt) / 1000;
+    highlightSubs();
+    updateSubsTime(subs.elapsed);
+    subs.raf = requestAnimationFrame(subsTick);
+}
+
+function highlightSubs() {
+    let idx = -1;
+    for (let i = 0; i < subs.cues.length; i++) { if (subs.cues[i].t <= subs.elapsed + 0.15) idx = i; else break; }
+    if (idx === subs.activeIdx) return;
+    subs.activeIdx = idx;
+    const player = subsOverlayEl.querySelector('#subs-player');
+    player.querySelectorAll('.kara-line.active').forEach(el => el.classList.remove('active'));
+    if (idx >= 0) {
+        const el = player.querySelector(`.kara-line[data-i="${idx}"]`);
+        if (el) {
+            el.classList.add('active');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            translateKaraokeLine(el);
+            translateKaraokeLine(player.querySelector(`.kara-line[data-i="${idx + 1}"]`));
+        }
+    }
+}
+
+function updateSubsTime(sec) {
+    const el = subsOverlayEl && subsOverlayEl.querySelector('#subs-time');
     if (!el) return;
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);

@@ -377,11 +377,12 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
 const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime-2.1';
 const REALTIME_VOICE = process.env.REALTIME_VOICE || 'marin';
 const TUTOR_INSTRUCTIONS =
-    'You are a warm, patient Mandarin Chinese conversation tutor helping a learner practice speaking. ' +
-    'Speak mostly in simple, clear Mandarin at a slightly slow pace, using common everyday vocabulary. ' +
-    'Keep each reply short (1–2 sentences) and end by asking a simple question to keep the conversation going. ' +
-    'Gently correct clear pronunciation or grammar mistakes. If the learner is stuck or switches to English, ' +
-    'you may briefly explain in English, then return to Mandarin. Be encouraging.';
+    'You are a warm, patient Mandarin Chinese conversation tutor for a beginner learner. ' +
+    'CRITICAL RULES: (1) Speak SLOWLY and clearly. (2) Keep every reply to ONE short, simple sentence — never a paragraph. ' +
+    '(3) Wait patiently and let the learner finish speaking; NEVER interrupt or rush to answer. ' +
+    '(4) After you reply, ask at most one simple question, then STOP and wait for their answer. ' +
+    'Use only common, everyday Mandarin vocabulary. Gently correct a clear mistake in one short phrase. ' +
+    'If the learner is stuck or uses English, give a brief hint in English, then return to simple Mandarin. Be encouraging and unhurried.';
 
 app.post('/realtime-session', async (req, res) => {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
@@ -395,9 +396,15 @@ app.post('/realtime-session', async (req, res) => {
                     model: REALTIME_MODEL,
                     instructions: TUTOR_INSTRUCTIONS,
                     audio: {
-                        // Transcribe the learner's speech so the client can show it.
-                        input: { transcription: { model: 'whisper-1' } },
-                        output: { voice: REALTIME_VOICE }
+                        input: {
+                            // Transcribe the learner's speech so the client can show it.
+                            transcription: { model: 'whisper-1' },
+                            // Wait for a clear pause before responding, so it doesn't
+                            // interrupt or rush the learner.
+                            turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 900 }
+                        },
+                        // Slightly slower, calmer speech for a beginner.
+                        output: { voice: REALTIME_VOICE, speed: 0.85 }
                     }
                 }
             })
@@ -456,7 +463,7 @@ app.get('/song-search', async (req, res) => {
         const resp = await fetch('https://music.163.com/api/search/get', {
             method: 'POST',
             headers: { ...NETEASE_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ s: q, type: '1', limit: '12', offset: '0' }).toString()
+            body: new URLSearchParams({ s: q, type: '1', limit: '20', offset: '0' }).toString()
         });
         const data = await resp.json();
         const songs = (data?.result?.songs || []).map(s => ({

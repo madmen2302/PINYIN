@@ -462,7 +462,7 @@
         /* Overlays & Modals */
         #panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 30; }
         body.mobile-layout.left-panel-open #panel-overlay, body.mobile-layout.right-panel-open #panel-overlay { opacity: 1; pointer-events: auto; }
-        .main-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 3000; }
+        .main-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 5000; }
         .main-modal.active { display: flex; }
         #modal-content { background: var(--card-bg); padding: 2rem; border-radius: 24px; max-width: 500px; width: 90%; box-shadow: var(--shadow-md); text-align: center; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem; }
@@ -625,6 +625,9 @@
 
         .game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; color: var(--text-secondary); font-weight: 600; }
         .game-feedback { text-align: center; min-height: 1.4rem; margin-top: 0.75rem; font-weight: 600; }
+        .game-answer { display: inline-block; margin-top: 0.35rem; font-weight: 500; }
+        .game-answer-char { font-family: "KaiTi","楷体",serif; font-size: 1.25rem; margin-right: 0.15rem; }
+        .game-answer-py { color: var(--accent-color); }
 
         .game-tile {
             background: var(--input-bg); border: 1px solid var(--border-hairline); border-radius: var(--radius-sm);
@@ -716,16 +719,21 @@
         .reader-topbar h3 { margin: 0; font-size: 1rem; flex-shrink: 0; max-width: 28%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #reader-chapter-select { flex: 1; min-width: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--card-bg); color: var(--text-main); font-size: 0.9rem; }
         #reader-content { flex: 1; overflow-y: auto; padding: 1.5rem clamp(1rem, 5vw, 4rem) 6rem; scroll-behavior: smooth; }
-        .rd-chapter { max-width: 720px; margin: 0 auto 3rem; }
-        .rd-chapter-title { font-size: 1.4rem; font-weight: 700; margin: 1.5rem 0 1.25rem; }
-        .rd-para { position: relative; font-size: 1.5rem; line-height: 2.5; margin: 0 0 1.35rem; }
-        ruby.rd-char { cursor: pointer; border-radius: 4px; padding: 0 1px; transition: background 0.15s; }
-        ruby.rd-char rt { font-size: 0.5em; opacity: 0.85; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600; }
+        .rd-chapter { max-width: 700px; margin: 0 auto 3.5rem; }
+        .rd-chapter-title { font-size: 1.5rem; font-weight: 700; margin: 2.5rem 0 1.5rem; padding-bottom: 0.6rem; border-bottom: 2px solid var(--border-hairline); }
+        .rd-para { position: relative; font-size: 1.55rem; line-height: 2.7; margin: 0 0 1.7rem; }
+        ruby.rd-char { cursor: pointer; border-radius: 5px; padding: 0 2px; transition: background 0.15s; }
+        ruby.rd-char rt { font-size: 0.48em; opacity: 0.85; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600; }
         ruby.rd-char:hover { background: var(--accent-soft); }
-        ruby.rd-char.new-char { text-decoration: underline; text-decoration-color: var(--accent-2); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+        ruby.rd-char.new-char { background: color-mix(in srgb, var(--accent-2) 12%, transparent); }
+        ruby.rd-char.new-char:hover { background: var(--accent-soft); }
         .rd-translate { display: inline-block; margin-left: 0.4rem; font-size: 0.85rem; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; font-family: -apple-system, sans-serif; }
         .rd-translate:hover { border-color: var(--accent-color); color: var(--accent-color); }
         .rd-en { display: block; font-size: 1rem; color: var(--text-secondary); font-style: italic; line-height: 1.5; margin-top: 0.35rem; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+        .char-info-card { text-align: center; }
+        .char-info-hanzi { font-family: "KaiTi","楷体",serif; font-size: 4.5rem; line-height: 1; margin-bottom: 0.5rem; }
+        .char-info-py { color: var(--accent-color); font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
+        .char-info-def { color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.5; }
 
         /* ======== HSK PROGRESS ======== */
         .hsk-modal-content { max-width: 520px; text-align: left; }
@@ -749,9 +757,10 @@
         #karaoke-overlay.active { display: flex; }
         .kara-topbar { position: sticky; top: 0; display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; background: var(--glass-bg-opaque); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--border-hairline); }
         .kara-topbar h3 { margin: 0; font-size: 1rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .kara-search { display: flex; gap: 0.5rem; padding: 1rem clamp(1rem,5vw,3rem) 0.5rem; max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+        #kara-search-view { flex: 1; min-height: 0; flex-direction: column; }
+        .kara-search { display: flex; gap: 0.5rem; padding: 1rem clamp(1rem,5vw,3rem) 0.5rem; max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; flex-shrink: 0; }
         .kara-search input { flex: 1; min-width: 0; padding: 0.7rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--card-bg); color: var(--text-main); font-size: 1rem; }
-        .kara-results { max-width: 720px; margin: 0 auto; width: 100%; padding: 0.5rem clamp(1rem,5vw,3rem); box-sizing: border-box; overflow-y: auto; }
+        .kara-results { flex: 1; min-height: 0; max-width: 720px; margin: 0 auto; width: 100%; padding: 0.5rem clamp(1rem,5vw,3rem); box-sizing: border-box; overflow-y: auto; }
         .kara-result { display: flex; justify-content: space-between; gap: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); background: var(--card-bg); border: 1px solid var(--border-hairline); margin-bottom: 0.5rem; cursor: pointer; transition: transform 0.15s var(--ease-spring), border-color 0.15s; }
         .kara-result:hover { transform: translateY(-1px); border-color: var(--accent-color); }
         .kara-result-name { font-weight: 600; }
@@ -765,6 +774,12 @@
         .kara-play-btn { width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--accent-grad); color: #fff; font-size: 1.4rem; cursor: pointer; box-shadow: 0 6px 18px var(--accent-glow); flex-shrink: 0; }
         .kara-time { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 46px; text-align: center; }
         .kara-hint { color: var(--text-subtle); font-size: 0.85rem; text-align: center; padding: 0 1rem; }
+
+        /* ======== SUBTITLES (reuses .kara-* line/player/transport styles) ======== */
+        #subs-overlay { position: fixed; inset: 0; z-index: 4000; background: var(--bg-color); display: none; flex-direction: column; }
+        #subs-overlay.active { display: flex; }
+        #subs-video { width: 100%; max-height: 42vh; background: #000; display: none; }
+        #subs-video.loaded { display: block; }
 
         @media (max-width: 520px) { .quiz-prompt { font-size: 3.5rem; } .quiz-options { grid-template-columns: 1fr; } }
     </style>
@@ -838,6 +853,12 @@
                     <button id="karaoke-btn" class="panel-btn" style="margin-top:0.5rem;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"></path></svg>
                         <span>Karaoke / Lyrics</span>
+                    </button>
+                    <input type="file" id="subs-file-input" accept=".srt,.ass,.vtt,.ssa" style="display:none;">
+                    <input type="file" id="subs-video-input" accept="video/*" style="display:none;">
+                    <button id="subs-btn" class="panel-btn" style="margin-top:0.5rem;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M18 3v2h-2V3H8v2H6V3H4v18h2v-2h2v2h8v-2h2v2h2V3h-2zM8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2zm10 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V7h2v2z"></path></svg>
+                        <span>Subtitles (SRT / ASS) for TV & film</span>
                     </button>
                 </div>
 
