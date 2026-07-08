@@ -4641,3 +4641,103 @@ function openReader(book) {
 
     overlay.classList.add('active');
 }
+
+// ===================================
+// ========== HSK PROGRESS ===========
+// ===================================
+// Tag words by HSK 3.0 level (from bundled hsk.json) and show how much of each
+// level you've encountered across your sessions and decks.
+
+let hskMap = null;
+let hskLoadPromise = null;
+let hskModalEl = null;
+
+const hskProgressBtn = document.getElementById('hsk-progress-btn');
+if (hskProgressBtn) hskProgressBtn.addEventListener('click', showHskProgress);
+
+function loadHskData() {
+    if (hskMap) return Promise.resolve(hskMap);
+    if (hskLoadPromise) return hskLoadPromise;
+    hskLoadPromise = fetch('./hsk.json')
+        .then(r => { if (!r.ok) throw new Error('Could not load HSK data.'); return r.json(); })
+        .then(m => { hskMap = m; return m; })
+        .catch(e => { hskLoadPromise = null; throw e; });
+    return hskLoadPromise;
+}
+
+// Every distinct word the learner has met: segmented session texts + deck cards.
+function computeSeenWords() {
+    const words = new Set();
+    const texts = sessionHistory.map(s => s.chineseText).filter(Boolean);
+    if (temporarySession && temporarySession.chineseText) texts.push(temporarySession.chineseText);
+    if (segmentit) {
+        for (const t of texts) {
+            try {
+                for (const w of segmentit.doSegment(t, { simple: true })) {
+                    if (chineseCharRegex.test(w)) words.add(w);
+                }
+            } catch (_) { /* ignore */ }
+        }
+    }
+    (flashcardStore.decks || []).forEach(d => (d.cards || []).forEach(c => { if (c.char) words.add(c.char); }));
+    return words;
+}
+
+function ensureHskModal() {
+    if (hskModalEl) return hskModalEl;
+    hskModalEl = document.createElement('div');
+    hskModalEl.id = 'hsk-modal';
+    hskModalEl.className = 'main-modal';
+    hskModalEl.innerHTML = `
+        <div class="modal-content hsk-modal-content">
+            <div class="game-topbar">
+                <h3>HSK Progress</h3>
+                <button id="hsk-close" class="modal-btn">Close</button>
+            </div>
+            <div id="hsk-body"></div>
+        </div>`;
+    document.body.appendChild(hskModalEl);
+    hskModalEl.querySelector('#hsk-close').addEventListener('click', () => hskModalEl.classList.remove('active'));
+    hskModalEl.addEventListener('click', (e) => { if (e.target === hskModalEl) hskModalEl.classList.remove('active'); });
+    return hskModalEl;
+}
+
+async function showHskProgress() {
+    ensureHskModal();
+    const body = hskModalEl.querySelector('#hsk-body');
+    body.innerHTML = `<p class="info" style="text-align:center; padding:1rem;">Loading HSK data…</p>`;
+    hskModalEl.classList.add('active');
+    let map;
+    try {
+        map = await loadHskData();
+    } catch (e) {
+        body.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
+        return;
+    }
+    const seen = computeSeenWords();
+    const totals = {}, known = {};
+    let totalWords = 0, totalKnown = 0;
+    for (const [word, level] of Object.entries(map)) {
+        totals[level] = (totals[level] || 0) + 1;
+        totalWords++;
+        if (seen.has(word)) { known[level] = (known[level] || 0) + 1; totalKnown++; }
+    }
+    const label = (l) => (l === 7 ? '7–9' : String(l));
+    let rows = '';
+    for (let l = 1; l <= 7; l++) {
+        const t = totals[l] || 0;
+        const k = known[l] || 0;
+        const pct = t ? Math.round((k / t) * 100) : 0;
+        rows += `
+            <div class="hsk-row">
+                <div class="hsk-badge hsk-L${l}">HSK ${label(l)}</div>
+                <div class="hsk-bar"><div class="hsk-bar-fill" style="width:${pct}%"></div></div>
+                <div class="hsk-count">${k} / ${t} · ${pct}%</div>
+            </div>`;
+    }
+    const overallPct = totalWords ? Math.round((totalKnown / totalWords) * 100) : 0;
+    body.innerHTML = `
+        <div class="hsk-total">You've encountered <strong>${totalKnown.toLocaleString()}</strong> of ${totalWords.toLocaleString()} HSK words (${overallPct}%).</div>
+        ${rows}
+        <p class="info" style="margin-top:1rem; font-size:0.8rem; text-align:center;">Counts words seen across your saved sessions and flashcard decks. HSK 3.0 levels.</p>`;
+}
