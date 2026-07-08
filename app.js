@@ -4215,3 +4215,121 @@ async function handleOcrImage(file) {
         showModal('Scan failed', escapeHtml(error.message || 'Could not read the image.'));
     }
 }
+
+// ===================================
+// ======== REALTIME VOICE TUTOR =====
+// ===================================
+// Live spoken conversation with an AI Mandarin tutor over WebRTC. The server
+// mints a short-lived ephemeral token (/realtime-session); the browser then
+// opens a peer connection straight to OpenAI's Realtime API. The real API key
+// never reaches the client.
+
+let tutorPc = null;
+let tutorStream = null;
+let tutorModalEl = null;
+let tutorActive = false;
+
+const voiceTutorBtn = document.getElementById('voice-tutor-btn');
+if (voiceTutorBtn) voiceTutorBtn.addEventListener('click', openVoiceTutor);
+
+function ensureTutorModal() {
+    if (tutorModalEl) return tutorModalEl;
+    tutorModalEl = document.createElement('div');
+    tutorModalEl.id = 'tutor-modal';
+    tutorModalEl.className = 'main-modal';
+    tutorModalEl.innerHTML = `
+        <div class="modal-content tutor-modal-content">
+            <div class="game-topbar">
+                <h3>Voice Tutor</h3>
+                <button id="tutor-close" class="modal-btn">Close</button>
+            </div>
+            <div id="tutor-orb" class="tutor-orb"></div>
+            <div id="tutor-status" class="tutor-status">Tap start, then just speak in Chinese — your AI tutor replies out loud.</div>
+            <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
+            <audio id="tutor-audio" autoplay></audio>
+        </div>`;
+    document.body.appendChild(tutorModalEl);
+    tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(); tutorModalEl.classList.remove('active'); });
+    tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => tutorActive ? stopTutor() : startTutor());
+    tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) { stopTutor(); tutorModalEl.classList.remove('active'); } });
+    return tutorModalEl;
+}
+
+function openVoiceTutor() {
+    ensureTutorModal();
+    const status = tutorModalEl.querySelector('#tutor-status');
+    const toggle = tutorModalEl.querySelector('#tutor-toggle');
+    status.textContent = 'Tap start, then just speak in Chinese — your AI tutor replies out loud.';
+    toggle.textContent = 'Start conversation';
+    toggle.classList.remove('recording');
+    tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
+    tutorModalEl.classList.add('active');
+}
+
+async function startTutor() {
+    const status = tutorModalEl.querySelector('#tutor-status');
+    const toggle = tutorModalEl.querySelector('#tutor-toggle');
+    const orb = tutorModalEl.querySelector('#tutor-orb');
+    status.textContent = 'Connecting…';
+    toggle.disabled = true;
+    try {
+        // 1. Ephemeral token from our server.
+        const sess = await fetch(`${backendUrl}/realtime-session`, { method: 'POST' });
+        const sdata = await sess.json();
+        if (!sess.ok) throw new Error(sdata.error || 'Could not start a session.');
+
+        // 2. Peer connection + remote audio playback.
+        tutorPc = new RTCPeerConnection();
+        const audioEl = tutorModalEl.querySelector('#tutor-audio');
+        tutorPc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+        tutorPc.onconnectionstatechange = () => {
+            if (tutorPc && ['failed', 'disconnected', 'closed'].includes(tutorPc.connectionState)) {
+                if (tutorActive) { status.textContent = 'Connection lost.'; stopTutor(); }
+            }
+        };
+
+        // 3. Microphone.
+        tutorStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tutorStream.getTracks().forEach(t => tutorPc.addTrack(t, tutorStream));
+
+        // 4. Data channel (events). Greet the learner once it opens.
+        const dc = tutorPc.createDataChannel('oai-events');
+        dc.onopen = () => { try { dc.send(JSON.stringify({ type: 'response.create' })); } catch (_) { /* ignore */ } };
+
+        // 5. SDP offer -> OpenAI Realtime -> answer.
+        const offer = await tutorPc.createOffer();
+        await tutorPc.setLocalDescription(offer);
+        const sdpResp = await fetch('https://api.openai.com/v1/realtime/calls', {
+            method: 'POST',
+            body: offer.sdp,
+            headers: { 'Authorization': `Bearer ${sdata.token}`, 'Content-Type': 'application/sdp' }
+        });
+        if (!sdpResp.ok) throw new Error(`Realtime handshake failed (${sdpResp.status}).`);
+        await tutorPc.setRemoteDescription({ type: 'answer', sdp: await sdpResp.text() });
+
+        tutorActive = true;
+        status.textContent = '🎙️ Connected — start speaking in Chinese!';
+        toggle.textContent = 'End conversation';
+        toggle.classList.add('recording');
+        orb.classList.add('active');
+    } catch (error) {
+        console.error('Voice tutor error:', error);
+        status.innerHTML = `<span class="error">${escapeHtml(error.message || 'Could not connect.')}</span>`;
+        stopTutor(true);
+    } finally {
+        toggle.disabled = false;
+    }
+}
+
+function stopTutor(silent) {
+    tutorActive = false;
+    if (tutorStream) { tutorStream.getTracks().forEach(t => t.stop()); tutorStream = null; }
+    if (tutorPc) { try { tutorPc.close(); } catch (_) { /* ignore */ } tutorPc = null; }
+    if (tutorModalEl && !silent) {
+        const toggle = tutorModalEl.querySelector('#tutor-toggle');
+        toggle.textContent = 'Start conversation';
+        toggle.classList.remove('recording');
+        tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
+        tutorModalEl.querySelector('#tutor-status').textContent = 'Conversation ended. Tap start to go again.';
+    }
+}

@@ -111,6 +111,7 @@ app.use('/transcribe', aiLimiter);
 app.use('/enhance', aiLimiter);
 app.use('/radical-info', aiLimiter);
 app.use('/ocr', aiLimiter);
+app.use('/realtime-session', aiLimiter);
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
@@ -324,6 +325,50 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
     } catch (error) {
         console.error('Error proxying to Whisper:', error);
         res.status(500).json({ error: `Whisper API error: ${error.message}` });
+    }
+});
+
+// === Realtime voice tutor: mint a short-lived ephemeral token ===
+// The browser never sees the real API key; it gets a short-lived token to
+// open a WebRTC session directly with OpenAI's Realtime API.
+const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime-2.1';
+const REALTIME_VOICE = process.env.REALTIME_VOICE || 'marin';
+const TUTOR_INSTRUCTIONS =
+    'You are a warm, patient Mandarin Chinese conversation tutor helping a learner practice speaking. ' +
+    'Speak mostly in simple, clear Mandarin at a slightly slow pace, using common everyday vocabulary. ' +
+    'Keep each reply short (1–2 sentences) and end by asking a simple question to keep the conversation going. ' +
+    'Gently correct clear pronunciation or grammar mistakes. If the learner is stuck or switches to English, ' +
+    'you may briefly explain in English, then return to Mandarin. Be encouraging.';
+
+app.post('/realtime-session', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    try {
+        const resp = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session: {
+                    type: 'realtime',
+                    model: REALTIME_MODEL,
+                    instructions: TUTOR_INSTRUCTIONS,
+                    audio: { output: { voice: REALTIME_VOICE } }
+                }
+            })
+        });
+        const raw = await resp.text();
+        let data = null;
+        if (raw) { try { data = JSON.parse(raw); } catch (_) { /* non-JSON */ } }
+        if (!resp.ok) {
+            const msg = (data && (data.error?.message || data.error)) || raw || `Realtime session error ${resp.status}`;
+            console.error(`Realtime session ${resp.status}: ${msg}`);
+            return res.status(502).json({ error: msg });
+        }
+        const token = data?.value || data?.client_secret?.value;
+        if (!token) return res.status(502).json({ error: 'No ephemeral token in response.' });
+        res.json({ token, model: REALTIME_MODEL });
+    } catch (error) {
+        console.error('Realtime session error:', error.message);
+        res.status(502).json({ error: error.message });
     }
 });
 
