@@ -72,6 +72,14 @@ app.use(compression());
 app.use(cors()); // Allow requests from your frontend
 app.use(express.json({ limit: '50mb' })); // Increase the limit to handle larger DB files
 
+// Never serve server code, dependency manifests, or runtime data files.
+app.use((req, res, next) => {
+    if (/^\/(server\.js|package\.json|package-lock\.json|translation-cache\.json(\.tmp)?|scripts(\/|$))/.test(req.path)) {
+        return res.status(404).end();
+    }
+    next();
+});
+
 // Serve static assets with cache policies tuned per file:
 // - dictionary.json is large (~6MB) and rarely changes -> cache for a day so
 //   repeat visits skip the download entirely (big win on slow connections).
@@ -148,9 +156,12 @@ async function loadTranslationCache() {
 
 async function saveTranslationCache() {
     if (!translationCacheDirty) return;
-    translationCacheDirty = false;
     try {
-        await fs.writeFile(TRANSLATION_CACHE_FILE, JSON.stringify(translationCache), 'utf8');
+        // Write to a temp file then rename, so a crash mid-write can't corrupt it.
+        const tmp = TRANSLATION_CACHE_FILE + '.tmp';
+        await fs.writeFile(tmp, JSON.stringify(translationCache), 'utf8');
+        await fs.rename(tmp, TRANSLATION_CACHE_FILE);
+        translationCacheDirty = false; // clear only after a successful write
     } catch (e) {
         console.warn('Could not persist translation cache:', e.message);
     }
@@ -201,6 +212,9 @@ app.post('/translate', async (req, res) => {
         if (translated) {
             translationCache[cacheKey] = translated;
             translationCacheDirty = true;
+            // Keep the cache bounded — drop the oldest entries past a ceiling.
+            const keys = Object.keys(translationCache);
+            if (keys.length > 60000) { for (let i = 0; i < 10000; i++) delete translationCache[keys[i]]; }
         }
         res.json(data);
     } catch (error) {

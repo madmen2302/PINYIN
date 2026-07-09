@@ -334,6 +334,24 @@ function updateAutoSaveIndicator(isTemporarySession = false) {
     }
 }
 
+// Safari / iOS don't support audio/webm for MediaRecorder — pick a supported
+// type (mp4 there) so recording doesn't throw. Returns '' to let the browser default.
+function supportedAudioMime() {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+    if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+    return '';
+}
+function makeRecorder(stream) {
+    const mime = supportedAudioMime();
+    return new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+}
+function audioFilename(type, base) {
+    const t = type || '';
+    const ext = (t.includes('mp4') || t.includes('mpeg') || t.includes('m4a')) ? 'm4a' : (t.includes('wav') ? 'wav' : 'webm');
+    return `${base}.${ext}`;
+}
+
 function getCharDomId(char, prefix = 'char') {
     if (!char) return `${prefix}-unknown`;
     const codes = Array.from(char).map(ch => ch.codePointAt(0));
@@ -386,6 +404,7 @@ async function loadDictionaryAndLibs() {
         loadHistory(); // This now also loads global stats
         loadFlashcards(); // === NEW ===
         populateVoiceList();
+        voiceSelector.addEventListener('change', () => { try { localStorage.setItem('preferredVoice', voiceSelector.value); } catch (_) { /* ignore */ } });
         loadUserMnemonics(); // === NEW ===
         if (speechSynthesis.onvoiceschanged !== undefined) {
             speechSynthesis.onvoiceschanged = populateVoiceList;
@@ -580,12 +599,19 @@ flashcardEl.addEventListener('click', (event) => {
 });
 flashcardNextBtn.addEventListener('click', () => showFlashcard(currentFlashcardIndex + 1));
 flashcardFlipBtn.addEventListener('click', () => flashcardEl.classList.toggle('flipped'));
-flashcardAiBtn.addEventListener('click', showFlashcardAiInsight);
+flashcardAiBtn.addEventListener('click', () => showFlashcardAiInsight(false));
 flashcardPrevBtn.addEventListener('click', () => showFlashcard(currentFlashcardIndex - 1));
 testRightBtn.addEventListener('click', () => recordTestAnswer(true));
 testWrongBtn.addEventListener('click', () => recordTestAnswer(false));
 testSkipBtn.addEventListener('click', skipCurrentCard);
 downloadCsvBtn.addEventListener('click', downloadDeckAsCsv);
+
+// Wire up the "Your Mnemonic" modal (Save / Cancel / backdrop) — was inert.
+if (mnemonicModal) {
+    mnemonicSaveBtn.addEventListener('click', saveUserMnemonicFromModal);
+    mnemonicCancelBtn.addEventListener('click', () => { mnemonicModal.style.display = 'none'; });
+    mnemonicModal.addEventListener('click', (e) => { if (e.target === mnemonicModal) mnemonicModal.style.display = 'none'; });
+}
 
 
 function toggleHistoryPanel(forceOpen) {
@@ -907,11 +933,19 @@ async function startListening() {
         analyser.fftSize = 512;
         source.connect(analyser);
         visualize();
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        mediaRecorder = makeRecorder(stream);
         mediaRecorder.addEventListener('dataavailable', (e) => { if (e.data.size > 0) fullAudioChunks.push(e.data); });
         mediaRecorder.addEventListener('stop', processFullRecording);
         mediaRecorder.start();
-    } catch (error) { console.error('Microphone error:', error); }
+    } catch (error) {
+        console.error('Microphone error:', error);
+        // Reset the recording UI so it isn't stuck "on" after a denial/failure.
+        isListening = false;
+        wave.classList.remove('show');
+        if (micFab) micFab.classList.remove('recording');
+        if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+        finalOutput.innerHTML = `<p class="error">Couldn't start recording: ${escapeHtml(error.message || 'microphone unavailable')}.</p>`;
+    }
 }
 function stopListening() {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
@@ -934,7 +968,7 @@ async function processFullRecording() {
         return;
     }
     processingOverlay.classList.add('visible');
-    const fullAudioBlob = new Blob(fullAudioChunks, { type: 'audio/webm' });
+    const fullAudioBlob = new Blob(fullAudioChunks, { type: (fullAudioChunks[0] && fullAudioChunks[0].type) || supportedAudioMime() || 'audio/webm' });
     const CHUNK_LIMIT = 24 * 1024 * 1024;
     try {
         let whisperResult = {};
@@ -966,7 +1000,7 @@ async function processFullRecording() {
 }
 async function sendBlobToWhisper(blob, prompt = "") {
     const formData = new FormData();
-    formData.append('file', blob, 'recording.webm');
+    formData.append('file', blob, audioFilename(blob.type, 'recording'));
     if (prompt) {
         formData.append('prompt', prompt);
     }
@@ -1365,7 +1399,8 @@ async function animateCharacterList(characters) {
 
 window.playSentenceWithHighlight = (sentence, buttonElement) => {
     const sentenceGroup = buttonElement.closest('.sentence-group');
-    const chars = sentence.match(/[\u4e00-\u9fff]/g);
+    const chars = sentence.match(/[\u4e00-\u9fff]/g) || [];
+    if (chars.length === 0) return; // nothing Chinese to speak
     stopAllAudio();
     playAllFab.classList.add('playing');
     if (soundStopFab) soundStopFab.classList.add('playing');
@@ -1500,7 +1535,17 @@ function revertDefinitions() {
 // ======== HISTORY & STATE MANAGEMENT ========
 // === UPDATED: Save triggers global stats update ===
 function saveHistory() {
-    localStorage.setItem('transcriptionHistory', JSON.stringify(sessionHistory));
+    // Guard against localStorage quota: a full store must not blow up an
+    // otherwise-successful transcription. Drop the oldest sessions and retry.
+    for (let attempt = 0; attempt < 6; attempt++) {
+        try {
+            localStorage.setItem('transcriptionHistory', JSON.stringify(sessionHistory));
+            break;
+        } catch (e) {
+            if (sessionHistory.length <= 1) { console.warn('History too large to save.', e); break; }
+            sessionHistory = sessionHistory.slice(0, Math.ceil(sessionHistory.length / 2)); // keep newest half
+        }
+    }
     updateGlobalStatsDisplay(); // Update global stats whenever history is saved
 }
 // === UPDATED: Load history also loads global stats ===
@@ -1740,7 +1785,20 @@ function speakFromQueue() {
     utterance.onerror = (e) => { isSpeaking = false; console.error("Speech error:", e); setTimeout(speakFromQueue, 100); };
     window.speechSynthesis.speak(utterance);
 }
-function populateVoiceList() { availableVoices = speechSynthesis.getVoices().filter(voice => voice.lang.startsWith('zh')); voiceSelector.innerHTML = ''; if (availableVoices.length === 0) { voiceSelector.innerHTML = '<option>No Chinese voices</option>'; return; } for(const voice of availableVoices) { const option = document.createElement('option'); option.textContent = `${voice.name} (${voice.lang})`; option.value = voice.name; voiceSelector.appendChild(option); } }
+function populateVoiceList() {
+    const previous = voiceSelector.value || localStorage.getItem('preferredVoice') || '';
+    availableVoices = speechSynthesis.getVoices().filter(voice => voice.lang.startsWith('zh'));
+    voiceSelector.innerHTML = '';
+    if (availableVoices.length === 0) { voiceSelector.innerHTML = '<option>No Chinese voices</option>'; return; }
+    for (const voice of availableVoices) {
+        const option = document.createElement('option');
+        option.textContent = `${voice.name} (${voice.lang})`;
+        option.value = voice.name;
+        voiceSelector.appendChild(option);
+    }
+    // Preserve the user's choice across the repeated voiceschanged events.
+    if (previous && availableVoices.some(v => v.name === previous)) voiceSelector.value = previous;
+}
 
 function updateStatsDisplay(stats) {
     const statsToDisplay = stats || {};
@@ -1873,7 +1931,7 @@ window.showStrokes = async (char) => {
         try {
             const response = await fetch(`${backendUrl}/radical-info`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ char, pinyin, definition, components: metadata.components, strokeCount: metadata.strokeCount })
+                body: JSON.stringify({ char, pinyin, definition: shortDef, components: metadata.components, strokeCount: metadata.strokeCount })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'AI API error');
@@ -1935,7 +1993,10 @@ window.showStrokes = async (char) => {
 window.showText = (title, text) => {
     closeHanziModal();
     modalTitle.textContent = title;
-    modalBody.innerHTML = `<p>${text}</p>`;
+    modalBody.innerHTML = '';
+    const p = document.createElement('p');
+    p.textContent = text; // definitions/AI text as text, not HTML (avoids injection & broken layout)
+    modalBody.appendChild(p);
     modal.classList.add('active');
 }
 
@@ -2906,10 +2967,12 @@ async function renderCardFace(target, types, card, faceKey, token) {
         `;
         contentWrapper.innerHTML = detailedHtml;
 
-        // If no DB data, fetch from AI
+        // No custom-DB data: DON'T auto-fire a paid AI call on every card render
+        // (that spent money on every flip and could 429 the rate limiter). The
+        // learner taps the "AI Insight" button on demand instead.
         if (!dbData) {
-            // The `true` argument tells the function to render the insight directly into the card
-            showFlashcardAiInsight(true); 
+            const aiSlot = contentWrapper.querySelector('.radical-ai');
+            if (aiSlot) aiSlot.innerHTML = `<p class="info" style="font-size:0.85em;">Tap “AI Insight” for an explanation &amp; mnemonic.</p>`;
         }
     }
 }
@@ -3360,6 +3423,7 @@ async function fetchCharacterMetadata(char) {
         return characterMetadataCache.get(char);
     }
     let payload = { char, strokeCount: null, components: [], charData: null };
+    let ok = false;
     try {
         const response = await fetch(`${backendUrl}/character-data/${encodeURIComponent(char)}`);
         if (response.ok) {
@@ -3367,6 +3431,7 @@ async function fetchCharacterMetadata(char) {
             payload.strokeCount = data.strokeCount ?? null;
             payload.components = Array.isArray(data.components) ? data.components : [];
             payload.charData = data.charData || null;
+            ok = true;
         } else {
             console.warn('Character metadata request failed:', response.status);
         }
@@ -3374,7 +3439,9 @@ async function fetchCharacterMetadata(char) {
         console.warn('Character metadata fetch failed:', error.message);
     }
 
-    characterMetadataCache.set(char, payload);
+    // Only cache successful results — don't let a transient failure poison the
+    // cache permanently.
+    if (ok) characterMetadataCache.set(char, payload);
     return payload;
 }
 
@@ -4118,7 +4185,14 @@ async function toggleSpeakRecording(btn, card, allCards) {
         return;
     }
     speakChunks = [];
-    speakMediaRecorder = new MediaRecorder(speakStream, { mimeType: 'audio/webm' });
+    try {
+        speakMediaRecorder = makeRecorder(speakStream);
+    } catch (e) {
+        speakStream.getTracks().forEach(t => t.stop());
+        speakStream = null;
+        gamesModalEl.querySelector('#game-feedback').innerHTML = `<span class="error">Recording isn't supported on this browser.</span>`;
+        return;
+    }
     speakMediaRecorder.ondataavailable = e => { if (e.data.size) speakChunks.push(e.data); };
     speakMediaRecorder.onstop = () => evaluateSpeech(btn, card, allCards);
     speakMediaRecorder.start();
@@ -4135,7 +4209,7 @@ async function evaluateSpeech(btn, card, allCards) {
     const fb = gamesModalEl.querySelector('#game-feedback');
     fb.innerHTML = '<span class="loading">Checking…</span>';
     try {
-        const blob = new Blob(speakChunks, { type: 'audio/webm' });
+        const blob = new Blob(speakChunks, { type: (speakChunks[0] && speakChunks[0].type) || 'audio/webm' });
         const result = await sendBlobToWhisper(blob, card.char);
         const { correct, heard } = comparePronunciation(card, result.text || '');
         if (correct) gameSession.score++;
@@ -4984,7 +5058,15 @@ async function identifySong() {
     btn.textContent = '🎧 Listening… (8s)';
     btn.disabled = true;
     const chunks = [];
-    identifyRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    try {
+        identifyRecorder = makeRecorder(stream);
+    } catch (e) {
+        stream.getTracks().forEach(t => t.stop());
+        btn.textContent = '🎧 Identify the song playing now';
+        btn.disabled = false;
+        results.innerHTML = `<p class="error" style="text-align:center;">Recording isn't supported on this browser.</p>`;
+        return;
+    }
     identifyRecorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     identifyRecorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
@@ -4994,7 +5076,8 @@ async function identifySong() {
         results.innerHTML = `<p class="info" style="text-align:center;">Identifying…</p>`;
         try {
             const fd = new FormData();
-            fd.append('sample', new Blob(chunks, { type: 'audio/webm' }), 'sample.webm');
+            const sampleBlob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
+            fd.append('sample', sampleBlob, audioFilename(sampleBlob.type, 'sample'));
             const resp = await fetch(`${backendUrl}/identify-song`, { method: 'POST', body: fd });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.error || 'No match.');
@@ -5304,6 +5387,7 @@ function renderSubsPlayer(name, cues) {
 function loadSubsVideo(file) {
     ensureSubsOverlay();
     stopSubsTimer();
+    if (subs.video.src && subs.video.src.startsWith('blob:')) URL.revokeObjectURL(subs.video.src);
     subs.video.src = URL.createObjectURL(file);
     subs.video.classList.add('loaded');
     subsOverlayEl.querySelector('#subs-transport').style.display = 'none'; // video controls drive sync now
