@@ -4709,15 +4709,57 @@ async function parseBookEpub(file) {
         if (!entry) continue;
         const doc = parser.parseFromString(await entry.async('string'), 'text/html');
         const chTitle = doc.querySelector('h1,h2,h3,title')?.textContent?.trim() || `Section ${chapters.length + 1}`;
-        let paragraphs = [...doc.querySelectorAll('p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
-        if (paragraphs.length === 0) {
-            paragraphs = (doc.body?.textContent || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+
+        // Walk paragraphs and images in document order so illustrations stay in place.
+        const blocks = [];
+        for (const node of doc.querySelectorAll('p, img, image')) {
+            const tag = node.tagName.toLowerCase();
+            if (tag === 'img' || tag === 'image') {
+                const rawSrc = node.getAttribute('src') || node.getAttribute('xlink:href') || node.getAttribute('href');
+                const imgPath = resolveZipPath(path, rawSrc);
+                if (!imgPath) continue;
+                const dataUrl = await zipImageToDataUrl(zip, imgPath);
+                if (dataUrl) blocks.push({ t: 'img', src: dataUrl });
+            } else {
+                const text = node.textContent.replace(/\s+/g, ' ').trim();
+                if (text) blocks.push({ t: 'p', text });
+            }
         }
-        if (paragraphs.length && paragraphs.some(p => chineseCharRegex.test(p))) {
-            chapters.push({ title: chTitle, paragraphs });
+        if (blocks.every(b => b.t !== 'p')) {
+            (doc.body?.textContent || '').split(/\n+/).map(s => s.trim()).filter(Boolean).forEach(t => blocks.push({ t: 'p', text: t }));
+        }
+        if (blocks.some(b => b.t === 'img' || (b.text && chineseCharRegex.test(b.text)))) {
+            chapters.push({ title: chTitle, blocks });
         }
     }
     return { title, chapters };
+}
+
+// Resolve an epub-internal image reference (relative to the chapter file) to a
+// zip path, handling ./ and ../
+function resolveZipPath(base, rel) {
+    if (!rel) return null;
+    rel = decodeURIComponent(rel.split(/[?#]/)[0]);
+    if (/^[a-z]+:\/\//i.test(rel) || rel.startsWith('data:')) return null; // external/inline
+    const baseDir = base.includes('/') ? base.replace(/[^/]+$/, '') : '';
+    const out = [];
+    for (const part of (baseDir + rel).split('/')) {
+        if (part === '..') out.pop();
+        else if (part !== '.' && part !== '') out.push(part);
+    }
+    return out.join('/');
+}
+
+async function zipImageToDataUrl(zip, path) {
+    const entry = zip.file(path);
+    if (!entry) return null;
+    try {
+        const base64 = await entry.async('base64');
+        const ext = (path.split('.').pop() || '').toLowerCase();
+        const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif'
+            : ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        return `data:${mime};base64,${base64}`;
+    } catch (_) { return null; }
 }
 
 async function parseBookPdf(file) {
@@ -4871,7 +4913,11 @@ function ensureReaderOverlay() {
     o.innerHTML = `
         <div class="reader-topbar">
             <h3 id="reader-title">Reader</h3>
-            <select id="reader-chapter-select" aria-label="Jump to chapter"></select>
+            <div class="reader-nav">
+                <button class="reader-nav-btn" id="reader-prev" aria-label="Previous chapter">‹</button>
+                <select id="reader-chapter-select" aria-label="Jump to chapter"></select>
+                <button class="reader-nav-btn" id="reader-next" aria-label="Next chapter">›</button>
+            </div>
             <button class="modal-btn" id="reader-close">Close</button>
         </div>
         <div id="reader-content"></div>`;
@@ -4881,6 +4927,16 @@ function ensureReaderOverlay() {
         if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
         if (readerHydrateObserver) { readerHydrateObserver.disconnect(); readerHydrateObserver = null; }
     });
+    const jump = (delta) => {
+        const sel = o.querySelector('#reader-chapter-select');
+        const cur = parseInt((sel.value || 'rd-ch-0').replace('rd-ch-', ''), 10) || 0;
+        const next = Math.max(0, Math.min((readerBook ? readerBook.chapters.length : 1) - 1, cur + delta));
+        hydrateReaderChapter(next);
+        const el = document.getElementById(`rd-ch-${next}`);
+        if (el) { el.scrollIntoView(); sel.value = `rd-ch-${next}`; }
+    };
+    o.querySelector('#reader-prev').addEventListener('click', () => jump(-1));
+    o.querySelector('#reader-next').addEventListener('click', () => jump(1));
     return o;
 }
 
@@ -4897,7 +4953,15 @@ function hydrateReaderChapter(idx) {
     if (!section || section.dataset.hydrated) return;
     section.dataset.hydrated = '1';
     const body = section.querySelector('.rd-chapter-body');
-    if (body) body.innerHTML = readerBook.chapters[idx].paragraphs.map(p => renderReaderParagraph(p, readerKnown)).join('');
+    if (!body) return;
+    const ch = readerBook.chapters[idx];
+    if (Array.isArray(ch.blocks)) {
+        body.innerHTML = ch.blocks.map(b => b.t === 'img'
+            ? `<img class="rd-img" src="${b.src}" alt="" loading="lazy">`
+            : renderReaderParagraph(b.text, readerKnown)).join('');
+    } else {
+        body.innerHTML = (ch.paragraphs || []).map(p => renderReaderParagraph(p, readerKnown)).join('');
+    }
 }
 
 function openReader(book) {
