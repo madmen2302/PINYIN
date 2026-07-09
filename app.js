@@ -352,6 +352,46 @@ function audioFilename(type, base) {
     return `${base}.${ext}`;
 }
 
+// Encode an AudioBuffer to a 16-bit PCM mono WAV (ACRCloud reliably decodes WAV,
+// unlike browser webm/opus).
+function audioBufferToWav(buffer) {
+    const sampleRate = buffer.sampleRate;
+    let data = buffer.getChannelData(0);
+    if (buffer.numberOfChannels > 1) {
+        const ch1 = buffer.getChannelData(1);
+        const mixed = new Float32Array(data.length);
+        for (let i = 0; i < data.length; i++) mixed[i] = (data[i] + ch1[i]) / 2;
+        data = mixed;
+    }
+    const total = 44 + data.length * 2;
+    const ab = new ArrayBuffer(total);
+    const view = new DataView(ab);
+    const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+    writeStr(0, 'RIFF'); view.setUint32(4, total - 8, true); writeStr(8, 'WAVE');
+    writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeStr(36, 'data'); view.setUint32(40, data.length * 2, true);
+    let off = 44;
+    for (let i = 0; i < data.length; i++) {
+        const s = Math.max(-1, Math.min(1, data[i]));
+        view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        off += 2;
+    }
+    return ab;
+}
+
+async function blobToWav(blob) {
+    const arrayBuf = await blob.arrayBuffer();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    try {
+        const audioBuf = await ctx.decodeAudioData(arrayBuf);
+        return new Blob([audioBufferToWav(audioBuf)], { type: 'audio/wav' });
+    } finally {
+        ctx.close();
+    }
+}
+
 function getCharDomId(char, prefix = 'char') {
     if (!char) return `${prefix}-unknown`;
     const codes = Array.from(char).map(ch => ch.codePointAt(0));
@@ -5288,8 +5328,11 @@ async function identifySong() {
         results.innerHTML = `<p class="info" style="text-align:center;">Identifying…</p>`;
         try {
             const fd = new FormData();
-            const sampleBlob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
-            fd.append('sample', sampleBlob, audioFilename(sampleBlob.type, 'sample'));
+            const recordedBlob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
+            // ACRCloud struggles to decode webm/opus — convert to WAV first.
+            let sampleBlob = recordedBlob;
+            try { sampleBlob = await blobToWav(recordedBlob); } catch (_) { /* fall back to original */ }
+            fd.append('sample', sampleBlob, sampleBlob.type === 'audio/wav' ? 'sample.wav' : audioFilename(sampleBlob.type, 'sample'));
             const resp = await fetch(`${backendUrl}/identify-song`, { method: 'POST', body: fd });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.error || 'No match.');
