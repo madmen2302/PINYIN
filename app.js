@@ -907,6 +907,43 @@ function renderCategoryFilters() {
 }
 
 // ======== CORE LOGIC (AUDIO, DATA, UI) ========
+// Recording rotates every few minutes so a long recording becomes several
+// small, independently-decodable files (you can't byte-slice one WebM blob —
+// chunk 2+ has no header and Whisper rejects it).
+let recordedSegments = [];
+let recordRotateTimer = null;
+let recordStream = null;
+let recordStopReason = 'final'; // 'rotate' | 'final'
+const RECORD_ROTATE_MS = 4 * 60 * 1000;
+
+function startRecorderSegment() {
+    fullAudioChunks = [];
+    mediaRecorder = makeRecorder(recordStream);
+    mediaRecorder.addEventListener('dataavailable', (e) => { if (e.data.size > 0) fullAudioChunks.push(e.data); });
+    mediaRecorder.addEventListener('stop', onRecorderStop);
+    mediaRecorder.start();
+}
+
+function rotateRecorder() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        recordStopReason = 'rotate';
+        mediaRecorder.stop();
+    }
+}
+
+function onRecorderStop() {
+    if (fullAudioChunks.length) {
+        recordedSegments.push(new Blob(fullAudioChunks, { type: (fullAudioChunks[0] && fullAudioChunks[0].type) || supportedAudioMime() || 'audio/webm' }));
+    }
+    if (recordStopReason === 'rotate') {
+        recordStopReason = 'final';
+        startRecorderSegment(); // keep recording on the same stream
+        return;
+    }
+    if (recordStream) { recordStream.getTracks().forEach(t => t.stop()); recordStream = null; }
+    processFullRecording();
+}
+
 async function startListening() {
     if (!dictionary || !segmentit) { isListening = false; return; }
     
@@ -933,10 +970,11 @@ async function startListening() {
         analyser.fftSize = 512;
         source.connect(analyser);
         visualize();
-        mediaRecorder = makeRecorder(stream);
-        mediaRecorder.addEventListener('dataavailable', (e) => { if (e.data.size > 0) fullAudioChunks.push(e.data); });
-        mediaRecorder.addEventListener('stop', processFullRecording);
-        mediaRecorder.start();
+        recordStream = stream;
+        recordedSegments = [];
+        recordStopReason = 'final';
+        startRecorderSegment();
+        recordRotateTimer = setInterval(rotateRecorder, RECORD_ROTATE_MS);
     } catch (error) {
         console.error('Microphone error:', error);
         // Reset the recording UI so it isn't stuck "on" after a denial/failure.
@@ -948,9 +986,13 @@ async function startListening() {
     }
 }
 function stopListening() {
+    if (recordRotateTimer) { clearInterval(recordRotateTimer); recordRotateTimer = null; }
+    recordStopReason = 'final';
     if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        mediaRecorder.stop(); // onRecorderStop releases the mic + starts transcription
+    } else if (recordStream) {
+        recordStream.getTracks().forEach(t => t.stop());
+        recordStream = null;
     }
     wave.classList.remove('show');
     if (audioContext) { audioContext.close(); audioContext = null; }
@@ -962,40 +1004,33 @@ function visualize() { if (!analyser) return; const bufferLength = analyser.freq
 
 async function processFullRecording() {
     wave.classList.remove('show');
-    if (fullAudioChunks.length === 0) {
+    if (recordedSegments.length === 0) {
         processingOverlay.classList.remove('visible');
         finalOutput.innerHTML = "<p class='info'>No audio recorded.</p>";
         return;
     }
     processingOverlay.classList.add('visible');
-    const fullAudioBlob = new Blob(fullAudioChunks, { type: (fullAudioChunks[0] && fullAudioChunks[0].type) || supportedAudioMime() || 'audio/webm' });
-    const CHUNK_LIMIT = 24 * 1024 * 1024;
+    const segments = recordedSegments;
+    recordedSegments = [];
     try {
-        let whisperResult = {};
-        if (fullAudioBlob.size <= CHUNK_LIMIT) {
-            whisperResult = await sendBlobToWhisper(fullAudioBlob);
-        } else {
-            let fullText = "";
-            let start = 0;
-            while (start < fullAudioBlob.size) {
-                const end = Math.min(start + CHUNK_LIMIT, fullAudioBlob.size);
-                const chunk = fullAudioBlob.slice(start, end, 'audio/webm');
-                const chunkResult = await sendBlobToWhisper(chunk, fullText);
-                if (chunkResult.text) fullText += chunkResult.text + " ";
-                start += CHUNK_LIMIT;
-            }
-            whisperResult = { text: fullText, language: 'zh' };
+        let fullText = "";
+        let language = 'zh';
+        // Each segment is a small, independently-valid file — transcribe in order,
+        // feeding the prior text as a prompt for continuity across boundaries.
+        for (const seg of segments) {
+            const result = await sendBlobToWhisper(seg, fullText.slice(-200));
+            if (result.text) fullText += (fullText ? " " : "") + result.text.trim();
+            if (result.language) language = result.language;
         }
-        if (whisperResult.text) {
-            let text = whisperResult.text.trim().replace(/\n/g, '。');
-            await processTranscription(text, whisperResult.language);
+        if (fullText.trim()) {
+            await processTranscription(fullText.trim().replace(/\n/g, '。'), language);
         } else {
             processingOverlay.classList.remove('visible');
             finalOutput.innerHTML = `<p class="info">No speech detected.</p>`;
         }
     } catch (error) {
         processingOverlay.classList.remove('visible');
-        finalOutput.innerHTML = `<p class="error">⚠️ Final Error: ${error.message}</p>`;
+        finalOutput.innerHTML = `<p class="error">⚠️ Transcription error: ${escapeHtml(error.message)}</p>`;
     }
 }
 async function sendBlobToWhisper(blob, prompt = "") {
@@ -1101,7 +1136,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
                                 <div class="char-grid"><div class="char-unit"><div class="char" data-char="${char}" onclick="event.stopPropagation(); window.showStrokes('${escapedChar}')">${char}</div></div></div>
                                 <div class="word-definition">
                                     <div class="word-pinyin" onclick="event.stopPropagation(); window.requestSpeech('${escapedChar}')">${charPinyin}</div>
-                                    <div class="word-english" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onclick="event.stopPropagation(); window.showText('Definition for ${char}', this.parentElement.parentElement.dataset.def)" data-full-def="${escapedFullCharDef}">${shortCharDef}</div>
+                                    <div class="word-english" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onclick="event.stopPropagation(); window.showText('Definition for ${char}', this.parentElement.parentElement.dataset.def)" data-full-def="${escapedFullCharDef}">${escapeHtml(shortCharDef)}</div>
                                 </div>
                             </div>`;
                         }
@@ -1137,7 +1172,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
 
                         wordDefinitionHtml = `<div class="word-definition">
                             <div class="word-pinyin" onclick="event.stopPropagation(); window.requestSpeech('${escapedWord}')">${wordPinyin}</div>
-                            <div class="word-english" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onclick="event.stopPropagation(); window.showText('Definition for ${word}', this.parentElement.parentElement.dataset.def)" data-full-def="${escapedFullWordDef}">${shortWordDef}</div>
+                            <div class="word-english" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onclick="event.stopPropagation(); window.showText('Definition for ${word}', this.parentElement.parentElement.dataset.def)" data-full-def="${escapedFullWordDef}">${escapeHtml(shortWordDef)}</div>
                         </div>`;
                     }
 
@@ -1168,8 +1203,8 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
         
         const fullParagraphOutput = `<div class="full-paragraph-output">
             <div class="final-english">${escapeHtml(finalEnglishText)}</div>
-            <div class="final-pinyin">${finalPinyin}</div>
-            <div class="final-chinese">${finalChineseText} <span class="play-btn-svg" onclick="window.requestSpeech(this.parentElement.textContent.replace('▶️', '').trim())">${playIcon}</span></div>
+            <div class="final-pinyin">${escapeHtml(finalPinyin)}</div>
+            <div class="final-chinese">${escapeHtml(finalChineseText)} <span class="play-btn-svg" onclick="window.requestSpeech(this.parentElement.textContent.replace('▶️', '').trim())">${playIcon}</span></div>
         </div>`;
         breakdownHtml += fullParagraphOutput;
 
@@ -1644,9 +1679,10 @@ function renderHistory() {
     }
 
     const highlightText = (text, term) => {
-        if (!term || !text) return text;
+        const safe = escapeHtml(text || ''); // escape first — this goes into innerHTML
+        if (!term) return safe;
         const regex = new RegExp(`(${term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
-        return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+        return safe.replace(regex, '<mark class="search-highlight">$1</mark>');
     };
 
     historyList.innerHTML = filteredSessions.map(session => {
@@ -1812,7 +1848,7 @@ function updateStatsDisplay(stats) {
         const pinyin = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : '';
         const rawDef = dictionary && dictionary[char] ? dictionary[char] : '...';
         const definition = rawDef.split(';')[0].split('/')[0];
-        return `<div class="stat-item" onclick="window.showStrokes('${char}')"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${definition}</span><span class="stat-count">${count}</span></div>`;
+        return `<div class="stat-item" onclick="window.showStrokes('${char}')"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${escapeHtml(definition)}</span><span class="stat-count">${count}</span></div>`;
     }).join('');
     statsContent.innerHTML = `<div class="stats-list">${statsHtml}</div>`;
 }
@@ -1849,7 +1885,7 @@ function updateGlobalStatsDisplay() {
         const pinyin = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : '';
         const rawDef = dictionary && dictionary[char] ? dictionary[char] : '...';
         const definition = rawDef.split(';')[0].split('/')[0];
-        return `<div class="stat-item" onclick="window.showStrokes('${char}')"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${definition}</span><span class="stat-count">${count}</span></div>`;
+        return `<div class="stat-item" onclick="window.showStrokes('${char}')"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${escapeHtml(definition)}</span><span class="stat-count">${count}</span></div>`;
     }).join('');
     globalStatsContent.innerHTML = `<div class="stats-list">${statsHtml}</div>`;
 }
@@ -1894,7 +1930,7 @@ window.showStrokes = async (char) => {
         <div id="stroke-target"></div>
         <div id="hanzi-modal-info">
             <div id="hanzi-modal-pinyin" onclick="window.requestSpeech('${char}')">${pinyin}</div>
-            <div id="hanzi-modal-def" onclick="window.showText('Definition for ${char}', '${fullDef.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}')">${shortDef}</div>
+            <div id="hanzi-modal-def" onclick="window.showText('Definition for ${char}', '${fullDef.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}')">${escapeHtml(shortDef)}</div>
         </div>
         <div id="hanzi-modal-details">
             <div class="hanzi-modal-components component-list loading">Fetching components...</div>
@@ -2053,7 +2089,7 @@ function generateCharacterListHtml(chineseText) {
             currentLineHtml += `<div class="char-list-item" data-char="${char}" data-pinyin="${pinyin}" data-def="${escapedFullDef}" onclick="toggleCardSelection(this, event)">
                 <div class="char-list-char" onclick="event.stopPropagation(); window.showStrokes('${escapedChar}')">${char}</div>
                 <div class="char-list-pinyin" onclick="event.stopPropagation(); window.requestSpeech('${escapedChar}')">${pinyin}</div>
-                <div class="char-list-english" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px;" onclick="event.stopPropagation(); window.showText('Def. for ${char}', '${escapedFullDef}')" title="${fullDef}">${shortDef}</div>
+                <div class="char-list-english" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px;" onclick="event.stopPropagation(); window.showText('Def. for ${char}', '${escapedFullDef}')" title="${escapeHtml(fullDef)}">${escapeHtml(shortDef)}</div>
             </div>`;
             charCountSinceBreak++;
         } else if (numberRegex.test(char)) { // Handle numbers
@@ -2226,7 +2262,7 @@ function generateGlobalStatsHtmlForDownload(globalStats) {
     let statsHtml = topN.map(([char, count]) => {
         const pinyin = "N/A"; // Pinyin lib not available
         const definition = "N/A"; // Dictionary not available
-        return `<div class="stat-item"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${definition}</span><span class="stat-count">${count}</span></div>`;
+        return `<div class="stat-item"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${escapeHtml(definition)}</span><span class="stat-count">${count}</span></div>`;
     }).join('');
     return `<h3 id="global-stats-title">Global Character Stats</h3><div id="global-stats-content"><div class="stats-list">${statsHtml}</div></div>`;
 }
@@ -2377,7 +2413,7 @@ function generateStatsHtmlForSession(stats, isDownloadAll = false) {
         let statsHtml = topN.map(([char, count]) => {
             const pinyin = (isDownloadAll || !window.pinyinPro) ? "N/A" : window.pinyinPro.pinyin(char, { toneType: 'symbol' });
             const definition = (isDownloadAll || !dictionary) ? "N/A" : (dictionary[char] || '...').split(';')[0].split('/')[0];
-            return `<div class="stat-item"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${definition}</span><span class="stat-count">${count}</span></div>`;
+            return `<div class="stat-item"><span class="stat-char">${char}</span><span class="stat-pinyin">${pinyin}</span><span class="stat-english">${escapeHtml(definition)}</span><span class="stat-count">${count}</span></div>`;
         }).join('');
         contentHtml = `<div class="stats-list">${statsHtml}</div>`;
     }
@@ -3500,7 +3536,7 @@ async function getRadicalInfo(char, isBack = false) {
                 <span class="radical-char">${char}</span>
                 <div>
                     <div class="radical-pinyin">${pinyin}</div>
-                    <div class="radical-def">${definition}</div>
+                    <div class="radical-def">${escapeHtml(definition)}</div>
                 </div>
             </div>
             <div class="radical-strokes">
@@ -4661,12 +4697,22 @@ function readerToneNumber(ch) {
     return m ? m[0] : '5';
 }
 
+// One pinyin-pro call per character gives both the toned pinyin and the tone
+// number (was two calls per char).
+function readerPinyinTone(ch) {
+    if (!window.pinyinPro?.pinyin) return { py: '', tone: '5' };
+    const r = window.pinyinPro.pinyin(ch, { type: 'all' });
+    const o = Array.isArray(r) ? r[0] : r;
+    if (!o) return { py: '', tone: '5' };
+    const m = String(o.num == null ? '' : o.num).match(/[1-5]/);
+    return { py: o.pinyin || '', tone: m ? m[0] : '5' };
+}
+
 function renderReaderParagraph(text, known) {
     let inner = '';
     for (const ch of text) {
         if (chineseCharRegex.test(ch)) {
-            const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'symbol' }) : '';
-            const tone = readerToneNumber(ch);
+            const { py, tone } = readerPinyinTone(ch);
             const newClass = known && !known.has(ch) ? ' new-char' : '';
             inner += `<ruby class="rd-char tone-${tone}${newClass}" data-char="${escapeHtml(ch)}" onclick="window.readerCharInfo(this)">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
         } else {
@@ -4756,13 +4802,31 @@ function ensureReaderOverlay() {
     o.querySelector('#reader-close').addEventListener('click', () => {
         o.classList.remove('active');
         if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
+        if (readerHydrateObserver) { readerHydrateObserver.disconnect(); readerHydrateObserver = null; }
     });
     return o;
 }
 
+let readerBook = null;
+let readerKnown = null;
+let readerHydrateObserver = null;
+
+// Render one chapter's paragraphs on demand (avoids building the entire book —
+// hundreds of thousands of DOM nodes — in one synchronous pass).
+function hydrateReaderChapter(idx) {
+    idx = +idx;
+    if (!readerBook || idx < 0 || idx >= readerBook.chapters.length) return;
+    const section = document.getElementById(`rd-ch-${idx}`);
+    if (!section || section.dataset.hydrated) return;
+    section.dataset.hydrated = '1';
+    const body = section.querySelector('.rd-chapter-body');
+    if (body) body.innerHTML = readerBook.chapters[idx].paragraphs.map(p => renderReaderParagraph(p, readerKnown)).join('');
+}
+
 function openReader(book) {
     const overlay = ensureReaderOverlay();
-    const known = buildKnownCharSet();
+    readerBook = book;
+    readerKnown = buildKnownCharSet();
     const content = overlay.querySelector('#reader-content');
     const select = overlay.querySelector('#reader-chapter-select');
     overlay.querySelector('#reader-title').textContent = book.title || 'Reader';
@@ -4770,25 +4834,32 @@ function openReader(book) {
     select.innerHTML = book.chapters.map((c, i) =>
         `<option value="rd-ch-${i}">${escapeHtml(c.title || ('Chapter ' + (i + 1)))}</option>`).join('');
 
+    // Build only chapter shells up front; bodies are filled lazily.
     content.innerHTML = book.chapters.map((c, i) => `
-        <section class="rd-chapter" id="rd-ch-${i}">
+        <section class="rd-chapter" id="rd-ch-${i}" data-idx="${i}">
             <div class="rd-chapter-title">${escapeHtml(c.title || ('Chapter ' + (i + 1)))}</div>
-            ${c.paragraphs.map(p => renderReaderParagraph(p, known)).join('')}
+            <div class="rd-chapter-body"></div>
         </section>`).join('');
     content.scrollTop = 0;
 
-    select.onchange = () => document.getElementById(select.value)?.scrollIntoView();
+    select.onchange = () => { hydrateReaderChapter(select.value.replace('rd-ch-', '')); document.getElementById(select.value)?.scrollIntoView(); };
 
-    // Keep the chapter dropdown in sync with scroll position.
+    // Two observers: one hydrates chapters as they approach; one keeps the
+    // dropdown in sync with the topmost visible chapter.
     if (readerObserver) readerObserver.disconnect();
+    if (readerHydrateObserver) readerHydrateObserver.disconnect();
+    readerHydrateObserver = new IntersectionObserver((entries) => {
+        entries.forEach(e => { if (e.isIntersecting) { hydrateReaderChapter(e.target.dataset.idx); hydrateReaderChapter(+e.target.dataset.idx + 1); } });
+    }, { root: content, rootMargin: '1000px 0px 1000px 0px' });
     readerObserver = new IntersectionObserver((entries) => {
         entries.forEach(e => { if (e.isIntersecting) select.value = e.target.id; });
     }, { root: content, rootMargin: '0px 0px -80% 0px' });
     book.chapters.forEach((_, i) => {
         const el = document.getElementById(`rd-ch-${i}`);
-        if (el) readerObserver.observe(el);
+        if (el) { readerHydrateObserver.observe(el); readerObserver.observe(el); }
     });
 
+    hydrateReaderChapter(0); // first chapter immediately
     overlay.classList.add('active');
 }
 
