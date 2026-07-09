@@ -4368,6 +4368,69 @@ let tutorActive = false;
 const voiceTutorBtn = document.getElementById('voice-tutor-btn');
 if (voiceTutorBtn) voiceTutorBtn.addEventListener('click', openVoiceTutor);
 
+// Scenario Director: role-play missions the tutor stays in character for.
+const TUTOR_SCENARIOS = [
+    { id: 'free', emoji: '💬', name: 'Free chat', prompt: '' },
+    { id: 'restaurant', emoji: '🍜', name: 'Order food', prompt: 'You are a waiter at a Chinese restaurant; the learner is ordering a meal.' },
+    { id: 'directions', emoji: '🧭', name: 'Ask directions', prompt: 'You are a passer-by; the learner is lost and asking how to get somewhere.' },
+    { id: 'shopping', emoji: '🛍️', name: 'Go shopping', prompt: 'You are a shop clerk; the learner is buying clothes and asking about size and price.' },
+    { id: 'rent', emoji: '🏠', name: 'Rent a flat', prompt: 'You are a landlord; the learner is negotiating rent and asking about the apartment.' },
+    { id: 'doctor', emoji: '🏥', name: 'See a doctor', prompt: 'You are a doctor; the learner describes feeling unwell and you ask about symptoms.' },
+    { id: 'interview', emoji: '💼', name: 'Job interview', prompt: 'You are an interviewer; the learner is interviewing for a job and you ask about their experience.' }
+];
+let tutorScenario = TUTOR_SCENARIOS[0];
+let tutorTranscriptLog = [];
+let tutorTargetWords = [];
+
+// Up to 8 SRS cards that are due, as the words to weave into this session.
+function gatherDueWords() {
+    const now = Date.now();
+    const due = [];
+    (flashcardStore.decks || []).forEach(d => (d.cards || []).forEach(c => {
+        if (!c.char || c.suspended) return;
+        const s = c.stats || {};
+        if ((s.due || 0) <= now) due.push({ char: c.char, due: s.due || 0 });
+    }));
+    due.sort((a, b) => a.due - b.due);
+    return due.slice(0, 8).map(d => d.char);
+}
+
+function renderTutorScenarios() {
+    const wrap = tutorModalEl.querySelector('#tutor-scenarios');
+    wrap.style.display = '';
+    wrap.innerHTML = TUTOR_SCENARIOS.map(s =>
+        `<button class="tutor-scenario ${s.id === tutorScenario.id ? 'active' : ''}" data-id="${s.id}">${s.emoji} ${escapeHtml(s.name)}</button>`).join('');
+    wrap.querySelectorAll('.tutor-scenario').forEach(btn => btn.addEventListener('click', () => {
+        tutorScenario = TUTOR_SCENARIOS.find(s => s.id === btn.dataset.id) || TUTOR_SCENARIOS[0];
+        wrap.querySelectorAll('.tutor-scenario').forEach(b => b.classList.toggle('active', b === btn));
+    }));
+}
+
+// One bounded pass after the call: which target words were used + top fixes.
+async function runTutorDebrief() {
+    const debriefEl = tutorModalEl && tutorModalEl.querySelector('#tutor-debrief');
+    if (!debriefEl || !tutorTranscriptLog.length) return;
+    const transcript = tutorTranscriptLog.map(l => `${l.who === 'you' ? 'You' : 'Tutor'}: ${l.zh}`).join('\n');
+    debriefEl.innerHTML = `<div class="tutor-debrief-title">Debrief</div><p class="loading">Reviewing your conversation…</p>`;
+    try {
+        const resp = await fetch(`${backendUrl}/tutor-debrief`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript, targetWords: tutorTargetWords })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Debrief failed.');
+        const used = (data.used || []).filter(Boolean);
+        const usedHtml = tutorTargetWords.length
+            ? `<div class="tutor-debrief-used">Target words: ${tutorTargetWords.map(w => `<span class="${used.includes(w) ? 'used' : 'missed'}">${escapeHtml(w)}</span>`).join(' ')}</div>`
+            : '';
+        const corr = (data.corrections || []).slice(0, 4).map(c =>
+            `<div class="tutor-correction"><span class="c-said">${escapeHtml(c.said || '')}</span> → <span class="c-better">${escapeHtml(c.better || '')}</span>${c.note ? `<div class="c-note">${escapeHtml(c.note)}</div>` : ''}</div>`).join('');
+        debriefEl.innerHTML = `<div class="tutor-debrief-title">Debrief</div>${usedHtml}${corr || '<p class="info">Nice — nothing major to correct.</p>'}`;
+    } catch (e) {
+        debriefEl.innerHTML = `<div class="tutor-debrief-title">Debrief</div><p class="error">${escapeHtml(e.message)}</p>`;
+    }
+}
+
 function ensureTutorModal() {
     if (tutorModalEl) return tutorModalEl;
     tutorModalEl = document.createElement('div');
@@ -4379,16 +4442,18 @@ function ensureTutorModal() {
                 <h3>Voice Tutor</h3>
                 <button id="tutor-close" class="modal-btn">Close</button>
             </div>
+            <div id="tutor-scenarios" class="tutor-scenarios"></div>
             <div id="tutor-orb" class="tutor-orb"></div>
-            <div id="tutor-status" class="tutor-status">Tap start, then just speak in Chinese — your AI tutor replies out loud.</div>
+            <div id="tutor-status" class="tutor-status">Pick a scenario (or free chat), then tap start and speak in Chinese.</div>
             <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
             <div id="tutor-transcript" class="tutor-transcript"></div>
+            <div id="tutor-debrief" class="tutor-debrief"></div>
             <audio id="tutor-audio" autoplay></audio>
         </div>`;
     document.body.appendChild(tutorModalEl);
-    tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(); tutorModalEl.classList.remove('active'); });
+    tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(true); tutorModalEl.classList.remove('active'); });
     tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => tutorActive ? stopTutor() : startTutor());
-    tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) { stopTutor(); tutorModalEl.classList.remove('active'); } });
+    tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) { stopTutor(true); tutorModalEl.classList.remove('active'); } });
     return tutorModalEl;
 }
 
@@ -4401,6 +4466,8 @@ function openVoiceTutor() {
     toggle.classList.remove('recording');
     tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
     tutorModalEl.querySelector('#tutor-transcript').innerHTML = '';
+    tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
+    renderTutorScenarios();
     tutorModalEl.classList.add('active');
 }
 
@@ -4410,9 +4477,16 @@ async function startTutor() {
     const orb = tutorModalEl.querySelector('#tutor-orb');
     status.textContent = 'Connecting…';
     toggle.disabled = true;
+    tutorTranscriptLog = [];
+    tutorTargetWords = gatherDueWords();
+    tutorModalEl.querySelector('#tutor-scenarios').style.display = 'none';
+    tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
     try {
-        // 1. Ephemeral token from our server.
-        const sess = await fetch(`${backendUrl}/realtime-session`, { method: 'POST' });
+        // 1. Ephemeral token from our server (with the chosen scenario + due words).
+        const sess = await fetch(`${backendUrl}/realtime-session`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scenario: tutorScenario.prompt, targetWords: tutorTargetWords })
+        });
         const sdata = await sess.json();
         if (!sess.ok) throw new Error(sdata.error || 'Could not start a session.');
 
@@ -4470,6 +4544,8 @@ function stopTutor(silent) {
         toggle.classList.remove('recording');
         tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
         tutorModalEl.querySelector('#tutor-status').textContent = 'Conversation ended. Tap start to go again.';
+        renderTutorScenarios();
+        runTutorDebrief(); // one bounded review pass over what was said
     }
 }
 
@@ -4488,6 +4564,7 @@ function handleTutorEvent(evt) {
 async function addTutorTranscriptLine(who, chinese) {
     chinese = (chinese || '').trim();
     if (!chinese || !tutorModalEl) return;
+    tutorTranscriptLog.push({ who, zh: chinese }); // for the debrief
     const wrap = tutorModalEl.querySelector('#tutor-transcript');
     if (!wrap) return;
     const pinyin = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(chinese, { toneType: 'symbol' }) : '';

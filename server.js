@@ -121,6 +121,7 @@ app.use('/enhance', aiLimiter);
 app.use('/radical-info', aiLimiter);
 app.use('/ocr', aiLimiter);
 app.use('/realtime-session', aiLimiter);
+app.use('/tutor-debrief', aiLimiter);
 app.use('/song-search', utilityLimiter);
 app.use('/song-lyric', utilityLimiter);
 app.use('/identify-song', aiLimiter);
@@ -403,6 +404,13 @@ const TUTOR_INSTRUCTIONS =
 app.post('/realtime-session', async (req, res) => {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
     try {
+        // Scenario Director: role-play scenario + the learner's due SRS words to elicit.
+        const { scenario, targetWords } = req.body || {};
+        let instructions = TUTOR_INSTRUCTIONS;
+        if (scenario) instructions += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 240)}.`;
+        if (Array.isArray(targetWords) && targetWords.length) {
+            instructions += ` During the conversation, naturally create openings for the learner to use these words (weave them in, do not list them): ${targetWords.slice(0, 12).join('、')}.`;
+        }
         const resp = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -410,7 +418,7 @@ app.post('/realtime-session', async (req, res) => {
                 session: {
                     type: 'realtime',
                     model: REALTIME_MODEL,
-                    instructions: TUTOR_INSTRUCTIONS,
+                    instructions,
                     audio: {
                         input: {
                             // Transcribe the learner's speech so the client can show it.
@@ -439,6 +447,35 @@ app.post('/realtime-session', async (req, res) => {
     } catch (error) {
         console.error('Realtime session error:', error.message);
         res.status(502).json({ error: error.message });
+    }
+});
+
+// === Scenario Director debrief: one small pass over the conversation transcript ===
+app.post('/tutor-debrief', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    const { transcript, targetWords } = req.body || {};
+    if (!transcript) return res.status(400).json({ error: 'Missing transcript.' });
+    try {
+        const prompt = `A learner practiced Mandarin in this conversation (their lines are "You", the tutor's are "Tutor"). ` +
+            `Target words they were meant to practice: ${(Array.isArray(targetWords) ? targetWords.join('、') : '') || 'none'}.\n\n` +
+            `Transcript:\n${String(transcript).slice(0, 4000)}\n\n` +
+            `Return STRICT JSON: {"used":["<target words the learner actually used correctly>"], ` +
+            `"corrections":[{"said":"<short thing the learner said>","better":"<a more natural Mandarin version>","note":"<max 8 words>"}]}. ` +
+            `Max 4 corrections, most useful first; empty array if nothing worth correcting.`;
+        const c = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            temperature: 0.3,
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const data = JSON.parse(c.choices[0]?.message?.content || '{}');
+        res.json({
+            used: Array.isArray(data.used) ? data.used : [],
+            corrections: Array.isArray(data.corrections) ? data.corrections : []
+        });
+    } catch (error) {
+        console.error('Debrief error:', error.message);
+        res.status(502).json({ error: 'Debrief failed.' });
     }
 });
 
