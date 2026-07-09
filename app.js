@@ -2419,6 +2419,7 @@ function ensureCardSchema(card) {
     card.char = card.char || '';
     card.pinyin = card.pinyin || '';
     card.def = card.def || '';
+    card.sentence = card.sentence || ''; // source sentence (Context Resurrection)
     if (!card.id) {
         card.id = `${card.char}-${Math.random().toString(36).slice(2, 8)}`;
     }
@@ -2826,6 +2827,15 @@ async function renderCardFace(target, types, card, faceKey, token) {
             partEl.textContent = card.pinyin || window.pinyinPro?.pinyin(card.char, { toneType: 'symbol' });
         } else if (type === 'def') {
             partEl.textContent = truncateDefinition(card.def || dictionary?.[card.char] || '', 6);
+        } else if (type === 'sentence') {
+            if (card.sentence) {
+                partEl.classList.add('flashcard-sentence');
+                if (faceKey === 'front') {
+                    partEl.textContent = card.sentence.split(card.char).join(' ＿＿ '); // cloze
+                } else {
+                    partEl.innerHTML = renderRubyLine(card.sentence, card.char);
+                }
+            }
         } else if (type === 'userMnemonic') {
             const userMnemonic = userMnemonics[card.char];
             if (userMnemonic) {
@@ -4584,7 +4594,7 @@ function renderReaderParagraph(text, known) {
             const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'symbol' }) : '';
             const tone = readerToneNumber(ch);
             const newClass = known && !known.has(ch) ? ' new-char' : '';
-            inner += `<ruby class="rd-char tone-${tone}${newClass}" onclick="window.readerCharInfo('${ch}')">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+            inner += `<ruby class="rd-char tone-${tone}${newClass}" data-char="${escapeHtml(ch)}" onclick="window.readerCharInfo(this)">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
         } else {
             inner += escapeHtml(ch);
         }
@@ -4593,8 +4603,18 @@ function renderReaderParagraph(text, known) {
 }
 
 // Lightweight tap card for the reader: pinyin + full definition instantly
-// (local, no API), with a button to the full stroke view.
-window.readerCharInfo = (char) => {
+// (local, no API), a button to the stroke view, and "Add to flashcards" which
+// captures the SOURCE SENTENCE with the card (Context Resurrection).
+let readerCharSentence = '';
+window.readerCharInfo = (elOrChar) => {
+    let char, sentence = '';
+    if (elOrChar && elOrChar.dataset) {
+        char = elOrChar.dataset.char;
+        sentence = (elOrChar.closest('.rd-para') || {}).dataset ? elOrChar.closest('.rd-para').dataset.zh : '';
+    } else {
+        char = elOrChar;
+    }
+    readerCharSentence = sentence || '';
     const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : '';
     const full = (dictionary && dictionary[char]) ? dictionary[char] : '(no dictionary entry)';
     showModal('', `
@@ -4602,8 +4622,36 @@ window.readerCharInfo = (char) => {
             <div class="char-info-hanzi">${escapeHtml(char)}</div>
             <div class="char-info-py">${escapeHtml(py)}</div>
             <div class="char-info-def">${escapeHtml(full)}</div>
-            <button class="modal-btn primary" onclick="window.showStrokes('${char}')">Stroke order &amp; components</button>
+            <div class="char-info-actions">
+                <button class="modal-btn" onclick="window.showStrokes('${char}')">Strokes</button>
+                <button class="modal-btn primary" onclick="window.addReaderWordToDeck('${char}')">＋ Flashcard</button>
+            </div>
         </div>`);
+};
+
+// Add a word to the active deck (creating a "Reading" deck if none), keeping
+// the sentence it appeared in so reviews can resurrect the original context.
+window.addReaderWordToDeck = (char) => {
+    if (!getActiveDeck()) {
+        const deck = { id: Date.now().toString(), name: 'Reading', cards: [] };
+        flashcardStore.decks.push(deck);
+        flashcardStore.activeDeckId = deck.id;
+    }
+    const deck = getActiveDeck();
+    if (deck.cards.some(c => c.char === char)) {
+        showModal('Already saved', `${escapeHtml(char)} is already in "${escapeHtml(deck.name)}".`);
+        return;
+    }
+    const card = {
+        char,
+        pinyin: window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : '',
+        def: (dictionary && dictionary[char] || '').split(';')[0].split('/')[0].replace(/\[.*?\]|\(.*?\)/g, '').trim(),
+        sentence: readerCharSentence || ''
+    };
+    ensureCardSchema(card);
+    deck.cards.push(card);
+    saveFlashcards();
+    showModal('Saved', `Added ${escapeHtml(char)} to "${escapeHtml(deck.name)}"${card.sentence ? ' with its sentence.' : '.'}`);
 };
 
 window.readerTranslate = async (btn) => {
@@ -4857,12 +4905,14 @@ const karaokeBtn = document.getElementById('karaoke-btn');
 if (karaokeBtn) karaokeBtn.addEventListener('click', openKaraoke);
 
 // Tone-colored ruby for one line (chars only; punctuation passes through).
-function renderRubyLine(text) {
+// Optionally highlight every occurrence of `highlightChar`.
+function renderRubyLine(text, highlightChar) {
     let inner = '';
     for (const ch of text) {
         if (chineseCharRegex.test(ch)) {
             const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'symbol' }) : '';
-            inner += `<ruby class="rd-char tone-${readerToneNumber(ch)}">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+            const hl = (highlightChar && ch === highlightChar) ? ' rd-char-hl' : '';
+            inner += `<ruby class="rd-char tone-${readerToneNumber(ch)}${hl}">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
         } else {
             inner += escapeHtml(ch);
         }

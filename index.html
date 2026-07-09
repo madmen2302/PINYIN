@@ -734,6 +734,9 @@
         .char-info-hanzi { font-family: "KaiTi","楷体",serif; font-size: 4.5rem; line-height: 1; margin-bottom: 0.5rem; }
         .char-info-py { color: var(--accent-color); font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
         .char-info-def { color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.5; }
+        .char-info-actions { display: flex; gap: 0.5rem; justify-content: center; }
+        .flashcard-sentence { font-size: 1.3rem; line-height: 2.1; text-align: center; margin: 0.5rem 0; }
+        ruby.rd-char-hl { background: var(--accent-glow); border-radius: 5px; }
 
         /* ======== HSK PROGRESS ======== */
         .hsk-modal-content { max-width: 520px; text-align: left; }
@@ -1074,6 +1077,7 @@
                             <div id="flashcard-front-options" class="flashcard-face-options" style="display: flex; gap: 1rem;">
                                 <label><input type="checkbox" class="layout-checkbox" data-face="front" value="char"> Char</label>
                                 <label><input type="checkbox" class="layout-checkbox" data-face="front" value="writing"> Writing</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="front" value="sentence"> Sentence (cloze)</label>
                             </div>
                         </div>
                         <div class="setting-row">
@@ -1084,6 +1088,7 @@
                                 <label><input type="checkbox" class="layout-checkbox" data-face="back" value="userMnemonic"> My Mnemonic</label>
                                 <label><input type="checkbox" class="layout-checkbox" data-face="back" value="components"> Components</label>
                                 <label><input type="checkbox" class="layout-checkbox" data-face="back" value="mnemonic"> Mnemonic</label>
+                                <label><input type="checkbox" class="layout-checkbox" data-face="back" value="sentence"> Sentence</label>
                             </div>
                         </div>
                     </div>
