@@ -4878,8 +4878,28 @@ function renderReaderParagraph(text, known) {
             inner += escapeHtml(ch);
         }
     }
-    return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-translate" onclick="window.readerTranslate(this)">译</button><span class="rd-en"></span></p>`;
+    return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-translate" onclick="window.readerTranslate(this)">译</button><button class="rd-register" onclick="window.readerRegister(this)" title="Casual / formal / slang">语</button><span class="rd-en"></span><div class="rd-registers"></div></p>`;
 }
+
+// Register Lens: show the sentence in casual / formal / internet-slang forms.
+window.readerRegister = async (btn) => {
+    const para = btn.closest('.rd-para');
+    const wrap = para.querySelector('.rd-registers');
+    if (wrap.innerHTML) { wrap.innerHTML = ''; return; } // toggle off
+    wrap.innerHTML = '<span class="loading">…</span>';
+    try {
+        const resp = await fetch(`${backendUrl}/register`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: para.dataset.zh })
+        });
+        const d = await resp.json();
+        if (!resp.ok) throw new Error(d.error || 'Register lookup failed.');
+        const row = (label, txt) => txt ? `<div class="rd-reg-row"><span class="rd-reg-label">${label}</span><span class="rd-reg-zh">${renderRubyLine(txt)}</span></div>` : '';
+        wrap.innerHTML = row('口语', d.casual) + row('书面', d.formal) + row('网络', d.slang) || '<span class="info">No variants.</span>';
+    } catch (e) {
+        wrap.innerHTML = `<span class="error">${escapeHtml(e.message)}</span>`;
+    }
+};
 
 // Lightweight tap card for the reader: pinyin + full definition instantly
 // (local, no API), a button to the stroke view, and "Add to flashcards" which

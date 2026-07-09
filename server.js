@@ -119,6 +119,7 @@ const utilityLimiter = rateLimit({
 app.use('/transcribe', aiLimiter);
 app.use('/enhance', aiLimiter);
 app.use('/radical-info', aiLimiter);
+app.use('/register', aiLimiter);
 app.use('/ocr', aiLimiter);
 app.use('/realtime-session', aiLimiter);
 app.use('/tutor-debrief', aiLimiter);
@@ -221,6 +222,34 @@ app.post('/translate', async (req, res) => {
     } catch (error) {
         console.error('Error proxying to DeepL:', error.message);
         res.status(502).json({ error: error.message });
+    }
+});
+
+// Register Lens: rewrite a sentence in casual / formal / internet-slang registers.
+const registerCache = {};
+app.post('/register', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    const { text } = req.body || {};
+    if (!text) return res.status(400).json({ error: 'Missing text.' });
+    if (registerCache[text]) return res.json(registerCache[text]);
+    try {
+        const prompt = `Rewrite this Mandarin sentence in three registers, keeping the meaning. ` +
+            `Return STRICT JSON {"casual":"<natural spoken 口语 version>","formal":"<formal written 书面语 version>","slang":"<internet/网络语 version; if slang doesn't apply, a very casual version>"}. Sentence: "${String(text).slice(0, 400)}"`;
+        const c = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            temperature: 0.4,
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const data = JSON.parse(c.choices[0]?.message?.content || '{}');
+        const out = { casual: data.casual || '', formal: data.formal || '', slang: data.slang || '' };
+        registerCache[text] = out;
+        const keys = Object.keys(registerCache);
+        if (keys.length > 5000) delete registerCache[keys[0]];
+        res.json(out);
+    } catch (error) {
+        console.error('Register error:', error.message);
+        res.status(502).json({ error: 'Register lookup failed.' });
     }
 });
 
