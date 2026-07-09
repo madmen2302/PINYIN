@@ -4901,6 +4901,45 @@ window.readerRegister = async (btn) => {
     }
 };
 
+// i+1 Daily Serial: a story generated at the learner's level, read in the reader.
+const dailySerialBtn = document.getElementById('daily-serial-btn');
+if (dailySerialBtn) dailySerialBtn.addEventListener('click', openDailySerial);
+
+// Estimate the learner's HSK level: highest band where they know ~35%+ of it.
+async function estimateHskLevel() {
+    try { await loadHskData(); } catch (_) { return 2; }
+    const seen = computeSeenWords();
+    const totals = {}, known = {};
+    for (const [w, e] of Object.entries(hskMap)) { totals[e.l] = (totals[e.l] || 0) + 1; if (seen.has(w)) known[e.l] = (known[e.l] || 0) + 1; }
+    let level = 1;
+    for (let l = 1; l <= 6; l++) { if ((known[l] || 0) >= (totals[l] || 1) * 0.35) level = l + 1; else break; }
+    return Math.min(level, 6);
+}
+
+async function openDailySerial() {
+    processingOverlay.classList.add('visible');
+    try {
+        const level = await estimateHskLevel();
+        const targetWords = (typeof gatherDueWords === 'function') ? gatherDueWords() : [];
+        let previousSummary = '';
+        try { previousSummary = localStorage.getItem('dailySerialSummary') || ''; } catch (_) { /* ignore */ }
+        const resp = await fetch(`${backendUrl}/daily-serial`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ level, targetWords, previousSummary })
+        });
+        const d = await resp.json();
+        processingOverlay.classList.remove('visible');
+        if (!resp.ok) throw new Error(d.error || 'Could not generate the story.');
+        try { if (d.summary) localStorage.setItem('dailySerialSummary', d.summary); } catch (_) { /* ignore */ }
+        const paragraphs = (d.story || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+        if (!paragraphs.length) throw new Error('The story came back empty — try again.');
+        openReader({ title: d.title || '每日故事', chapters: [{ title: d.title || '每日故事', paragraphs }] });
+    } catch (e) {
+        processingOverlay.classList.remove('visible');
+        showModal('Story failed', escapeHtml(e.message));
+    }
+}
+
 // Lightweight tap card for the reader: pinyin + full definition instantly
 // (local, no API), a button to the stroke view, and "Add to flashcards" which
 // captures the SOURCE SENTENCE with the card (Context Resurrection).

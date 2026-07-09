@@ -120,6 +120,7 @@ app.use('/transcribe', aiLimiter);
 app.use('/enhance', aiLimiter);
 app.use('/radical-info', aiLimiter);
 app.use('/register', aiLimiter);
+app.use('/daily-serial', aiLimiter);
 app.use('/ocr', aiLimiter);
 app.use('/realtime-session', aiLimiter);
 app.use('/tutor-debrief', aiLimiter);
@@ -222,6 +223,33 @@ app.post('/translate', async (req, res) => {
     } catch (error) {
         console.error('Error proxying to DeepL:', error.message);
         res.status(502).json({ error: error.message });
+    }
+});
+
+// i+1 Daily Serial: generate the next episode of a story at the learner's level.
+app.post('/daily-serial', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    const { level, targetWords, previousSummary } = req.body || {};
+    try {
+        const words = Array.isArray(targetWords) && targetWords.length
+            ? `Naturally include these words the learner is studying: ${targetWords.slice(0, 8).join('、')}. ` : '';
+        const cont = previousSummary
+            ? `Continue the ongoing story from where it left off: ${String(previousSummary).slice(0, 400)}. `
+            : 'Start a new story and introduce a relatable recurring main character. ';
+        const prompt = `Write the next short episode (about 300–450 Chinese characters) of a simple, engaging story for a Mandarin learner at roughly HSK level ${level || 2}. ` +
+            `Use mostly common vocabulary at or below that level so it's comfortably readable. ${words}${cont}` +
+            `Return STRICT JSON {"title":"<short Chinese title>","story":"<the episode; Chinese punctuation; separate paragraphs with \\n>","summary":"<one short English sentence: what happened, for continuity>"}.`;
+        const c = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            temperature: 0.85,
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const d = JSON.parse(c.choices[0]?.message?.content || '{}');
+        res.json({ title: d.title || '今天的故事', story: d.story || '', summary: d.summary || '' });
+    } catch (error) {
+        console.error('Daily serial error:', error.message);
+        res.status(502).json({ error: 'Could not generate the story.' });
     }
 });
 
