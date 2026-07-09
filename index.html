@@ -40,8 +40,8 @@
 
             --border-color: rgba(255, 255, 255, 0.7);
             --border-hairline: rgba(120, 120, 150, 0.14);
-            --shadow-sm: 0 2px 10px rgba(40, 34, 90, 0.06);
-            --shadow-md: 0 12px 40px rgba(40, 34, 90, 0.12);
+            --shadow-sm: 0 1px 2px rgba(40, 34, 90, 0.04), 0 4px 14px rgba(40, 34, 90, 0.06);
+            --shadow-md: 0 2px 6px rgba(40, 34, 90, 0.05), 0 18px 48px rgba(40, 34, 90, 0.13);
             --glass-filter: blur(24px) saturate(190%);
             --glass-bg-opaque: rgba(240, 241, 248, 0.85);
             --hover-bg: rgba(95, 91, 230, 0.08);
@@ -55,6 +55,13 @@
             --category-discussion: #17c0aa;
             --category-practice: #bf5af2;
             --category-life: #ff6482;
+
+            /* Tone colors — tuned for contrast on the light background */
+            --tone-1: #e0304a;
+            --tone-2: #158a52;
+            --tone-3: #2a6fdb;
+            --tone-4: #8e44ad;
+            --tone-5: #8a8aa0;
         }
 
         body[data-theme="dark"] {
@@ -80,10 +87,17 @@
 
             --border-color: rgba(255, 255, 255, 0.12);
             --border-hairline: rgba(255, 255, 255, 0.08);
-            --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.35);
-            --shadow-md: 0 14px 44px rgba(0, 0, 0, 0.55);
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.4);
+            --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4), 0 18px 50px rgba(0, 0, 0, 0.6);
             --glass-bg-opaque: rgba(20, 20, 30, 0.85);
             --hover-bg: rgba(255, 255, 255, 0.08);
+
+            /* Tone colors — brighter for the dark background */
+            --tone-1: #ff6b7d;
+            --tone-2: #4ade80;
+            --tone-3: #60a5fa;
+            --tone-4: #c084fc;
+            --tone-5: #8a8aa0;
         }
 
         body {
@@ -718,11 +732,11 @@
         /* ================================================================
            TONE COLORS (Pleco-style) + BOOK READER
            ================================================================ */
-        .tone-1 { color: #ef5350; } /* first tone  — red */
-        .tone-2 { color: #66bb6a; } /* second tone — green */
-        .tone-3 { color: #42a5f5; } /* third tone  — blue */
-        .tone-4 { color: #ab47bc; } /* fourth tone — purple */
-        .tone-5 { color: var(--text-subtle); } /* neutral */
+        .tone-1 { color: var(--tone-1); } /* first tone  — red */
+        .tone-2 { color: var(--tone-2); } /* second tone — green */
+        .tone-3 { color: var(--tone-3); } /* third tone  — blue */
+        .tone-4 { color: var(--tone-4); } /* fourth tone — purple */
+        .tone-5 { color: var(--tone-5); } /* neutral */
 
         .reader-note { background: var(--accent-soft); color: var(--text-secondary); font-size: 0.82rem; padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); margin-top: 0.5rem; line-height: 1.4; }
 

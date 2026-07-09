@@ -516,15 +516,24 @@ app.get('/song-search', async (req, res) => {
         const resp = await fetch('https://music.163.com/api/search/get', {
             method: 'POST',
             headers: { ...NETEASE_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ s: q, type: '1', limit: '20', offset: '0' }).toString()
+            body: new URLSearchParams({ s: q, type: '1', limit: '30', offset: '0' }).toString()
         });
-        const data = await resp.json();
-        const songs = (data?.result?.songs || []).map(s => ({
+        // NetEase returns non-JSON for some queries (e.g. Latin text) — parse safely.
+        const raw = await resp.text();
+        let data = null;
+        try { data = JSON.parse(raw); } catch (_) { /* non-JSON */ }
+        let songs = (data?.result?.songs || []).map(s => ({
             id: s.id,
             name: s.name,
             artist: (s.artists || []).map(a => a.name).join(', '),
             album: s.album?.name || ''
         }));
+        // Drop obvious karaoke/instrumental/remix uploads to cut the clutter.
+        const junk = /(伴奏|纯音乐|純音樂|karaoke|instrumental|remix|dj版|\bdj\b|翻自)/i;
+        songs = songs.filter(s => s.name && !junk.test(s.name));
+        // De-dupe by name+artist.
+        const seen = new Set();
+        songs = songs.filter(s => { const k = s.name + '|' + s.artist; if (seen.has(k)) return false; seen.add(k); return true; });
         res.json({ songs });
     } catch (error) {
         console.error('Song search error:', error.message);
