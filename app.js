@@ -4237,6 +4237,11 @@ function openGamesHub(customCards) {
                 <span class="game-hub-name">Speak</span>
                 <span class="game-hub-desc">Say it aloud, check your pronunciation</span>
             </button>
+            <button class="game-hub-choice" data-game="pitch">
+                <span class="game-hub-emoji">🎵</span>
+                <span class="game-hub-name">Pitch</span>
+                <span class="game-hub-desc">Shadow the tone contour, see your pitch vs the target</span>
+            </button>
             ${confusionMissCount() ? `
             <button class="game-hub-choice game-hub-trouble" data-game="trouble">
                 <span class="game-hub-emoji">🎯</span>
@@ -4259,6 +4264,7 @@ function startGame(type, cards) {
     if (type === 'quiz') return startQuizGame(cards);
     if (type === 'listen') return startListenGame(cards);
     if (type === 'speak') return startSpeakGame(cards);
+    if (type === 'pitch') return startPitchGame(cards);
 }
 
 // --- Match: tap a character, then tap its meaning ---
@@ -4529,6 +4535,269 @@ function comparePronunciation(card, heardRaw) {
     const heardPy = window.pinyinPro?.pinyin(heard, { toneType: 'none' }) || '';
     const correct = !!targetPy && heardPy.split(/\s+/).includes(targetPy);
     return { correct, heard };
+}
+
+// ===================================
+// ====== PITCH-CONTOUR SHADOWING ====
+// ===================================
+// Show the canonical Mandarin tone contour for a word, let the learner record
+// themselves, extract their pitch track (F0 via autocorrelation) fully in the
+// browser, and overlay the two so tone-shape errors are visible. No server call.
+
+let pitchRecorder = null, pitchStream = null, pitchChunks = [], pitchBusy = false;
+
+// Canonical normalized pitch shapes per Mandarin tone (0 = bottom of the
+// speaker's range, 1 = top), following Chao tone-letter pitch values.
+const TONE_SHAPES = {
+    '1': [0.88, 0.90, 0.88],       // high level (55)
+    '2': [0.40, 0.55, 0.95],       // rising (35)
+    '3': [0.30, 0.12, 0.10, 0.45], // low dipping (214)
+    '4': [0.95, 0.55, 0.08],       // falling (51)
+    '5': [0.45, 0.40]              // neutral (light)
+};
+
+function startPitchGame(allCards) {
+    gamesModalEl.querySelector('#game-title').textContent = 'Pitch';
+    gameSession.cards = gameShuffle(allCards).slice(0, Math.min(8, allCards.length));
+    gameSession.index = 0;
+    gameSession.score = 0;
+    gameSession.total = gameSession.cards.length;
+    showPitchRound(allCards);
+}
+
+// Tone digits for each syllable of a word, e.g. 你好 -> ['3','3'].
+function wordToneDigits(word) {
+    try {
+        const arr = window.pinyinPro?.pinyin(word, { toneType: 'num', type: 'array' }) || [];
+        return arr.map(s => { const m = String(s).match(/[1-5]/); return m ? m[0] : '5'; });
+    } catch (e) { return []; }
+}
+
+// Build the target contour as points {x:0..1, y:0..1} across all syllables.
+function buildTargetContour(word) {
+    const tones = wordToneDigits(word);
+    if (!tones.length) return [];
+    const pts = [];
+    const n = tones.length;
+    tones.forEach((t, si) => {
+        const shape = TONE_SHAPES[t] || TONE_SHAPES['5'];
+        shape.forEach((y, k) => {
+            const within = shape.length > 1 ? k / (shape.length - 1) : 0.5;
+            const x = (si + within * 0.82 + 0.09) / n; // small gap between syllables
+            pts.push({ x, y });
+        });
+    });
+    return pts;
+}
+
+function showPitchRound(allCards) {
+    const gs = gameSession;
+    const body = gamesModalEl.querySelector('#game-body');
+    if (gs.index >= gs.cards.length) return showGameSummary(allCards, 'pitch');
+    const card = gs.cards[gs.index];
+    const py = card.pinyin || (window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(card.char, { toneType: 'symbol' }) : '');
+    body.innerHTML = `
+        <div class="game-header"><span>${gs.index + 1} / ${gs.total}</span><span>Best: ${gs.score}%</span></div>
+        <div class="pitch-prompt">${escapeHtml(card.char)}</div>
+        <div class="pitch-py">${escapeHtml(py)} <button class="modal-btn pitch-hear" style="margin-left:0.4rem;">🔊 Hear</button></div>
+        <canvas id="pitch-canvas" width="600" height="240"></canvas>
+        <div class="pitch-legend"><span class="pitch-key target">target tone</span><span class="pitch-key you">you</span></div>
+        <button id="pitch-record-btn" class="speak-record-btn">🎤 Tap &amp; shadow</button>
+        <div id="game-feedback" class="game-feedback"></div>
+        <div id="pitch-next-wrap" style="text-align:center; margin-top:0.5rem;"></div>`;
+    const canvas = body.querySelector('#pitch-canvas');
+    const target = buildTargetContour(card.char);
+    drawPitchContours(canvas, target, null);
+    body.querySelector('.pitch-hear').addEventListener('click', () => speakOnce(card.char));
+    const recBtn = body.querySelector('#pitch-record-btn');
+    recBtn.addEventListener('click', () => togglePitchRecording(recBtn, card, target, allCards));
+}
+
+async function togglePitchRecording(btn, card, target, allCards) {
+    if (pitchBusy) return;
+    if (pitchRecorder && pitchRecorder.state === 'recording') { pitchRecorder.stop(); return; }
+    try {
+        pitchStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        gamesModalEl.querySelector('#game-feedback').innerHTML = `<span class="error">Microphone access denied.</span>`;
+        return;
+    }
+    pitchChunks = [];
+    try { pitchRecorder = makeRecorder(pitchStream); }
+    catch (e) {
+        pitchStream.getTracks().forEach(t => t.stop()); pitchStream = null;
+        gamesModalEl.querySelector('#game-feedback').innerHTML = `<span class="error">Recording isn't supported here.</span>`;
+        return;
+    }
+    pitchRecorder.ondataavailable = e => { if (e.data.size) pitchChunks.push(e.data); };
+    pitchRecorder.onstop = () => analyzePitch(btn, card, target, allCards);
+    pitchRecorder.start();
+    btn.classList.add('recording');
+    btn.textContent = '⏹ Stop';
+}
+
+async function analyzePitch(btn, card, target, allCards) {
+    if (pitchStream) { pitchStream.getTracks().forEach(t => t.stop()); pitchStream = null; }
+    btn.classList.remove('recording');
+    btn.textContent = '🎤 Tap & shadow';
+    if (pitchChunks.length === 0) return;
+    pitchBusy = true;
+    const fb = gamesModalEl.querySelector('#game-feedback');
+    fb.innerHTML = '<span class="loading">Analyzing pitch…</span>';
+    try {
+        const blob = new Blob(pitchChunks, { type: (pitchChunks[0] && pitchChunks[0].type) || 'audio/webm' });
+        const arrayBuf = await blob.arrayBuffer();
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AC();
+        const audioBuf = await ctx.decodeAudioData(arrayBuf);
+        ctx.close();
+        const measured = extractPitchTrack(audioBuf);
+        const canvas = gamesModalEl.querySelector('#pitch-canvas');
+        if (measured.length < 3) {
+            drawPitchContours(canvas, target, null);
+            fb.innerHTML = `<span class="error">Didn't catch a clear voice — try again, a bit louder.</span>`;
+        } else {
+            drawPitchContours(canvas, target, measured);
+            const score = scorePitch(target, measured);
+            if (score > gameSession.score) gameSession.score = score;
+            const label = score >= 80 ? '🎯 Excellent tone match!' : score >= 60 ? '👍 Close — watch the shape.' : '🔁 Keep shadowing the curve.';
+            fb.innerHTML = `<span style="font-weight:700;">${label}</span> <span class="pitch-score">${score}%</span>`;
+        }
+        const nextWrap = gamesModalEl.querySelector('#pitch-next-wrap');
+        nextWrap.innerHTML = `<button class="modal-btn primary" id="pitch-next">Next ›</button>`;
+        nextWrap.querySelector('#pitch-next').addEventListener('click', () => { gameSession.index++; showPitchRound(allCards); });
+    } catch (e) {
+        fb.innerHTML = `<span class="error">${escapeHtml(e.message || 'Could not analyze audio.')}</span>`;
+    } finally {
+        pitchBusy = false;
+    }
+}
+
+// Extract a normalized pitch track ({x:0..1, y:0..1}) from an AudioBuffer using
+// frame-wise autocorrelation. Unvoiced/quiet frames are dropped.
+function extractPitchTrack(audioBuf) {
+    const sr = audioBuf.sampleRate;
+    const data = audioBuf.getChannelData(0);
+    const frame = 1024;
+    const hop = Math.max(256, Math.floor((data.length - frame) / 80)); // ~80 frames
+    const raw = [];
+    for (let start = 0; start + frame <= data.length; start += hop) {
+        const f0 = autoCorrelatePitch(data.subarray(start, start + frame), sr);
+        raw.push({ t: start / data.length, f0 });
+    }
+    const voiced = raw.filter(p => p.f0 >= 70 && p.f0 <= 400);
+    if (voiced.length < 3) return [];
+    const t0 = voiced[0].t, t1 = voiced[voiced.length - 1].t;
+    const span = (t1 - t0) || 1;
+    const logs = voiced.map(p => Math.log(p.f0));
+    const lo = Math.min(...logs), hi = Math.max(...logs);
+    const range = (hi - lo) || 1;
+    const pts = voiced.map(p => ({
+        x: (p.t - t0) / span,
+        y: 0.08 + 0.84 * ((Math.log(p.f0) - lo) / range)
+    }));
+    return smoothContour(pts);
+}
+
+function smoothContour(pts) {
+    if (pts.length < 3) return pts;
+    return pts.map((p, i) => {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+        return { x: p.x, y: (a.y + p.y + b.y) / 3 };
+    });
+}
+
+// Classic normalized autocorrelation pitch detector; returns Hz or -1 (unvoiced).
+function autoCorrelatePitch(buf, sampleRate) {
+    const SIZE = buf.length;
+    let rms = 0;
+    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / SIZE);
+    if (rms < 0.008) return -1; // too quiet
+    let r1 = 0, r2 = SIZE - 1;
+    const thres = 0.2;
+    for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+    for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+    const b = buf.subarray(r1, r2);
+    const n = b.length;
+    if (n < 32) return -1;
+    const c = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let sum = 0; for (let j = 0; j < n - i; j++) sum += b[j] * b[j + i]; c[i] = sum; }
+    let d = 0; while (d < n - 1 && c[d] > c[d + 1]) d++;
+    let maxval = -1, maxpos = -1;
+    for (let i = d; i < n; i++) if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+    if (maxpos <= 0) return -1;
+    let T0 = maxpos;
+    const x1 = c[T0 - 1] || 0, x2 = c[T0], x3 = c[T0 + 1] || 0;
+    const a = (x1 + x3 - 2 * x2) / 2, bb = (x3 - x1) / 2;
+    if (a) T0 = T0 - bb / (2 * a);
+    return T0 > 0 ? sampleRate / T0 : -1;
+}
+
+// Resample a contour to N evenly-spaced x samples (linear interpolation).
+function resampleContour(pts, N) {
+    if (!pts.length) return [];
+    const sorted = pts.slice().sort((p, q) => p.x - q.x);
+    const out = [];
+    let j = 0;
+    for (let i = 0; i < N; i++) {
+        const x = i / (N - 1);
+        while (j < sorted.length - 1 && sorted[j + 1].x < x) j++;
+        const a = sorted[Math.min(j, sorted.length - 1)];
+        const b = sorted[Math.min(j + 1, sorted.length - 1)];
+        const dx = (b.x - a.x) || 1;
+        const f = Math.max(0, Math.min(1, (x - a.x) / dx));
+        out.push(a.y + (b.y - a.y) * f);
+    }
+    return out;
+}
+
+// Score similarity of the measured contour to the target (0-100) via correlation
+// of the SHAPE (mean-removed) — tone is relative movement, not absolute pitch —
+// plus a small penalty for absolute level mismatch.
+function scorePitch(target, measured) {
+    const N = 24;
+    const t = resampleContour(target, N);
+    const m = resampleContour(measured, N);
+    if (t.length !== N || m.length !== N) return 0;
+    const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+    const tm = mean(t), mm = mean(m);
+    let num = 0, dt = 0, dm = 0;
+    for (let i = 0; i < N; i++) { const a = t[i] - tm, b = m[i] - mm; num += a * b; dt += a * a; dm += b * b; }
+    const corr = num / (Math.sqrt(dt * dm) || 1); // -1..1
+    const level = 1 - Math.min(1, Math.abs(tm - mm) * 1.2);
+    const combined = 0.8 * ((corr + 1) / 2) + 0.2 * level;
+    return Math.max(0, Math.min(100, Math.round(combined * 100)));
+}
+
+function drawPitchContours(canvas, target, measured) {
+    if (!canvas || !canvas.getContext) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const pad = 16;
+    const X = x => pad + x * (W - 2 * pad);
+    const Y = y => H - pad - y * (H - 2 * pad);
+    ctx.strokeStyle = 'rgba(128,128,128,0.18)'; ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) { const y = Y(g / 4); ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke(); }
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--accent-color').trim() || '#5f5be6';
+    const accent2 = css.getPropertyValue('--accent-2').trim() || '#17c0aa';
+    drawCurve(ctx, target, X, Y, accent2, 5, true);
+    if (measured && measured.length) drawCurve(ctx, measured, X, Y, accent, 3.5, false);
+}
+
+function drawCurve(ctx, pts, X, Y, color, width, dashed) {
+    if (!pts || !pts.length) return;
+    const sorted = pts.slice().sort((p, q) => p.x - q.x);
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.globalAlpha = dashed ? 0.6 : 0.95;
+    if (dashed) ctx.setLineDash([2, 9]);
+    ctx.beginPath();
+    sorted.forEach((p, i) => { const x = X(p.x), y = Y(p.y); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+    ctx.restore();
 }
 
 // --- Trouble spots: surface & drill the Confusion Graph the games have logged ---

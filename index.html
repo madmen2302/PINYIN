@@ -753,6 +753,17 @@
             50% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--danger-color) 6%, transparent); }
         }
 
+        /* Pitch-contour shadowing */
+        .pitch-prompt { font-family: "KaiTi","楷体",serif; font-size: 3.2rem; text-align: center; line-height: 1.1; margin: 0.3rem 0 0.2rem; }
+        .pitch-py { text-align: center; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.6rem; }
+        #pitch-canvas { display: block; width: 100%; max-width: 600px; height: auto; margin: 0 auto 0.4rem; background: var(--card-bg); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+        .pitch-legend { display: flex; justify-content: center; gap: 1.25rem; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.9rem; }
+        .pitch-key { display: inline-flex; align-items: center; gap: 0.35rem; }
+        .pitch-key::before { content: ''; width: 18px; height: 3px; border-radius: 3px; }
+        .pitch-key.target::before { background: var(--accent-2); }
+        .pitch-key.you::before { background: var(--accent-color); }
+        .pitch-score { font-weight: 800; color: var(--accent-color); font-size: 1.05rem; }
+
         /* Voice tutor */
         .tutor-modal-content { max-width: 460px; text-align: center; }
         .tutor-status { color: var(--text-secondary); margin: 1rem 0 1.5rem; min-height: 1.4rem; }
