@@ -140,6 +140,7 @@ app.use('/realtime-session', aiLimiter);
 app.use('/tutor-debrief', aiLimiter);
 app.use('/song-search', utilityLimiter);
 app.use('/song-lyric', utilityLimiter);
+app.use('/video-subs', utilityLimiter);
 app.use('/identify-song', aiLimiter);
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 
@@ -714,6 +715,54 @@ app.get('/song-lyric', async (req, res) => {
         console.error('Song lyric error:', error.message);
         res.status(502).json({ error: 'Could not fetch lyrics.' });
     }
+});
+
+// === Video subtitle extraction (delegated to a home GPU worker) ===
+// The worker (scripts/video-worker.py, run on the home PC over Tailscale) does
+// yt-dlp caption extraction and, when a video has none, audio -> local
+// faster-whisper. A tiny async job model keeps a long transcription from ever
+// hitting the reverse-proxy's request timeout: POST /video-subs returns a jobId
+// immediately and does the (possibly minutes-long) worker call in the
+// background; the client polls /video-subs-status. Jobs live in memory + expire.
+const VIDEO_WORKER_URL = process.env.VIDEO_WORKER_URL; // e.g. http://home-pc:8723
+const videoJobs = new Map(); // jobId -> { status, result, error, at }
+setInterval(() => {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    for (const [id, j] of videoJobs) if (j.at < cutoff) videoJobs.delete(id);
+}, 5 * 60 * 1000);
+
+app.post('/video-subs', (req, res) => {
+    const url = ((req.body && req.body.url) || '').trim();
+    if (!/^https?:\/\/\S+$/i.test(url)) return res.status(400).json({ error: 'Provide a valid video URL.' });
+    if (!VIDEO_WORKER_URL) return res.status(503).json({ error: 'Video extraction is not configured (VIDEO_WORKER_URL unset on the server).' });
+    const jobId = crypto.randomBytes(8).toString('hex');
+    videoJobs.set(jobId, { status: 'pending', at: Date.now() });
+    res.json({ jobId });
+    (async () => {
+        try {
+            const r = await fetch(`${VIDEO_WORKER_URL.replace(/\/$/, '')}/extract`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, transcribe: true }),
+                timeout: 30 * 60 * 1000 // ceiling for long videos
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `worker error ${r.status}`);
+            videoJobs.set(jobId, { status: 'done', result: data, at: Date.now() });
+        } catch (e) {
+            const msg = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network timeout/i.test(e.message || '')
+                ? 'Home worker unreachable (is the PC on and on the tailnet?).'
+                : (e.message || 'Extraction failed.');
+            videoJobs.set(jobId, { status: 'error', error: msg, at: Date.now() });
+        }
+    })();
+});
+
+app.get('/video-subs-status', (req, res) => {
+    const job = videoJobs.get((req.query.jobId || '').toString());
+    if (!job) return res.status(404).json({ error: 'Unknown or expired job.' });
+    if (job.status === 'done') return res.json({ status: 'done', ...job.result });
+    if (job.status === 'error') return res.json({ status: 'error', error: job.error });
+    res.json({ status: 'pending' });
 });
 
 // === Identify a playing song via ACRCloud (returns song + play offset) ===

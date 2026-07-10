@@ -6595,6 +6595,77 @@ if (subsBtn && subsFileInput) {
 }
 if (subsVideoInput) subsVideoInput.addEventListener('change', () => { const f = subsVideoInput.files && subsVideoInput.files[0]; if (f) loadSubsVideo(f); subsVideoInput.value = ''; });
 
+// --- Video link: paste a YouTube/Bilibili/XHS/Douyin URL; the server (via the
+// home GPU worker) pulls captions, or transcribes the audio, and we load the
+// result into the synced subtitle player with tone pinyin + English. ---
+const videoLinkBtn = document.getElementById('video-link-btn');
+if (videoLinkBtn) videoLinkBtn.addEventListener('click', openVideoLinkPrompt);
+
+function openVideoLinkPrompt() {
+    showModal('Paste a video link', `
+        <p class="info" style="margin:0 0 0.85rem;">YouTube, Bilibili, 小红书, Douyin… I'll pull the captions — or transcribe the audio if there are none — and add tone pinyin + English.</p>
+        <input id="video-url-input" type="url" inputmode="url" placeholder="https://…" autocomplete="off"
+            style="width:100%; box-sizing:border-box; padding:0.7rem 0.9rem; border-radius:12px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-main); font-size:1rem;">
+        <div style="display:flex; gap:0.5rem; justify-content:center; margin-top:1rem;">
+            <button class="modal-btn primary" id="video-extract-go">Extract subtitles</button>
+        </div>
+        <div id="video-extract-status" class="info" style="margin-top:0.85rem; min-height:1.2rem; line-height:1.5;"></div>`);
+    const input = document.getElementById('video-url-input');
+    if (input) {
+        input.focus();
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runVideoExtract(input.value.trim()); });
+    }
+    const go = document.getElementById('video-extract-go');
+    if (go) go.addEventListener('click', () => runVideoExtract((input && input.value || '').trim()));
+}
+
+async function runVideoExtract(url) {
+    const statusEl = document.getElementById('video-extract-status');
+    const setStatus = (html) => { if (statusEl) statusEl.innerHTML = html; };
+    if (!/^https?:\/\/\S+$/i.test(url)) { setStatus('<span class="error">Enter a valid video URL (starting with http).</span>'); return; }
+    const go = document.getElementById('video-extract-go');
+    if (go) go.disabled = true;
+    setStatus('<span class="loading">Contacting the server…</span>');
+    try {
+        const start = await fetch(`${backendUrl}/video-subs`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+        const sd = await start.json();
+        if (!start.ok) throw new Error(sd.error || 'Could not start extraction.');
+        const jobId = sd.jobId;
+
+        let tries = 0;
+        while (tries++ < 600) { // poll up to ~30 min at 3s
+            await new Promise(r => setTimeout(r, 3000));
+            let d;
+            try {
+                const st = await fetch(`${backendUrl}/video-subs-status?jobId=${encodeURIComponent(jobId)}`);
+                d = await st.json();
+            } catch (_) { continue; } // transient network blip — keep polling
+            if (d.status === 'pending') {
+                setStatus(tries < 4
+                    ? '<span class="loading">Looking for captions…</span>'
+                    : '<span class="loading">No captions — transcribing the audio on your GPU. This can take a few minutes for a long video…</span>');
+                continue;
+            }
+            if (d.status === 'error') throw new Error(d.error || 'Extraction failed.');
+            if (d.status === 'done') {
+                const cues = parseSrt(d.srt || '');
+                if (!cues.length) throw new Error('No Chinese subtitle lines were found in this video.');
+                closeHanziModal();
+                renderSubsPlayer(d.title || 'Video', cues);
+                return;
+            }
+        }
+        throw new Error('Timed out waiting for the video. Try a shorter clip, or check the home worker is running.');
+    } catch (e) {
+        setStatus(`<span class="error">${escapeHtml(e.message)}</span>`);
+    } finally {
+        if (go) go.disabled = false;
+    }
+}
+
 function parseSrt(text) {
     const cues = [];
     for (const block of text.replace(/\r/g, '').split(/\n\n+/)) {
