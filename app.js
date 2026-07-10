@@ -4983,6 +4983,43 @@ function buildKnownCharSet() {
     return set;
 }
 
+// --- Retrievability heat: estimate how much a scheduled card's memory has
+// decayed since its last review (R = exp(-elapsed / stability), R≈0.37 at due),
+// so the reader can tint fading words. Reading them becomes a micro-review. ---
+function cardRetrievability(stats) {
+    if (!stats) return 1;
+    const interval = Number(stats.interval) || 0;
+    const due = Number(stats.due) || 0;
+    if (interval <= 0 || !due) return 0.3; // brand-new / in learning: fragile
+    const DAY = 86400000;
+    const elapsedDays = interval - (due - Date.now()) / DAY;
+    const stability = Math.max(interval, 0.1);
+    return Math.exp(-Math.max(elapsedDays, 0) / stability);
+}
+
+// 0 = solid (no tint), 1 = faint, 2 = warm, 3 = hot (due/overdue).
+function heatLevelFromR(r) {
+    if (r >= 0.85) return 0;
+    if (r >= 0.6) return 1;
+    if (r >= 0.35) return 2;
+    return 3;
+}
+
+// char -> highest heat (lowest retrievability) among the cards containing it.
+function buildReaderHeatMap() {
+    const map = new Map();
+    (flashcardStore.decks || []).forEach(d => (d.cards || []).forEach(c => {
+        if (!c.char) return;
+        const lvl = heatLevelFromR(cardRetrievability(c.stats));
+        if (!lvl) return;
+        for (const ch of c.char) {
+            if (!chineseCharRegex.test(ch)) continue;
+            map.set(ch, Math.max(map.get(ch) || 0, lvl));
+        }
+    }));
+    return map;
+}
+
 function readerToneNumber(ch) {
     const arr = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'num', type: 'array' }) : null;
     const m = arr && arr[0] ? arr[0].match(/[1-5]/) : null;
@@ -5006,7 +5043,9 @@ function renderReaderParagraph(text, known) {
         if (chineseCharRegex.test(ch)) {
             const { py, tone } = readerPinyinTone(ch);
             const newClass = known && !known.has(ch) ? ' new-char' : '';
-            inner += `<ruby class="rd-char tone-${tone}${newClass}" data-char="${escapeHtml(ch)}" onclick="window.readerCharInfo(this)">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+            const heat = readerHeat && readerHeat.get(ch);
+            const heatClass = heat ? ` rd-heat-${heat}` : '';
+            inner += `<ruby class="rd-char tone-${tone}${newClass}${heatClass}" data-char="${escapeHtml(ch)}" onclick="window.readerCharInfo(this)">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
         } else {
             inner += escapeHtml(ch);
         }
@@ -5150,10 +5189,28 @@ function ensureReaderOverlay() {
                 <select id="reader-chapter-select" aria-label="Jump to chapter"></select>
                 <button class="reader-nav-btn" id="reader-next" aria-label="Next chapter">›</button>
             </div>
+            <button class="modal-btn" id="reader-heat-toggle" title="Highlight words your memory is losing — reading them reviews them">🔥 Heat</button>
             <button class="modal-btn" id="reader-close">Close</button>
+        </div>
+        <div id="reader-heat-legend">
+            <span class="rd-heat-key">Memory fading:</span>
+            <span class="rd-heat-swatch rd-heat-1"></span><span class="rd-heat-lbl">fresh</span>
+            <span class="rd-heat-swatch rd-heat-2"></span><span class="rd-heat-lbl">fading</span>
+            <span class="rd-heat-swatch rd-heat-3"></span><span class="rd-heat-lbl">due — review as you read</span>
         </div>
         <div id="reader-content"></div>`;
     document.body.appendChild(o);
+    const heatBtn = o.querySelector('#reader-heat-toggle');
+    const applyHeatState = (on) => {
+        o.querySelector('#reader-content').classList.toggle('heat-on', on);
+        o.querySelector('#reader-heat-legend').classList.toggle('visible', on);
+        heatBtn.classList.toggle('active', on);
+    };
+    heatBtn.addEventListener('click', () => {
+        const on = !o.querySelector('#reader-content').classList.contains('heat-on');
+        applyHeatState(on);
+        try { localStorage.setItem('readerHeatOn', on ? '1' : '0'); } catch (_) { /* ignore */ }
+    });
     o.querySelector('#reader-close').addEventListener('click', () => {
         o.classList.remove('active');
         if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
@@ -5174,6 +5231,7 @@ function ensureReaderOverlay() {
 
 let readerBook = null;
 let readerKnown = null;
+let readerHeat = null; // char -> heat level (1-3) for the retrievability heat map
 let readerHydrateObserver = null;
 
 // Render one chapter's paragraphs on demand (avoids building the entire book —
@@ -5200,7 +5258,14 @@ function openReader(book) {
     const overlay = ensureReaderOverlay();
     readerBook = book;
     readerKnown = buildKnownCharSet();
+    readerHeat = buildReaderHeatMap();
     const content = overlay.querySelector('#reader-content');
+    // Restore the reader's heat-map preference (default off — it's opt-in).
+    let heatOn = false;
+    try { heatOn = localStorage.getItem('readerHeatOn') === '1'; } catch (_) { /* ignore */ }
+    content.classList.toggle('heat-on', heatOn);
+    overlay.querySelector('#reader-heat-legend').classList.toggle('visible', heatOn);
+    overlay.querySelector('#reader-heat-toggle').classList.toggle('active', heatOn);
     const select = overlay.querySelector('#reader-chapter-select');
     overlay.querySelector('#reader-title').textContent = book.title || 'Reader';
 
