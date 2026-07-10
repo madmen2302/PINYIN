@@ -88,7 +88,7 @@ app.use(express.json({ limit: '50mb' })); // Increase the limit to handle larger
 
 // Never serve server code, dependency manifests, or runtime data files.
 app.use((req, res, next) => {
-    if (/^\/(server\.js|package\.json|package-lock\.json|translation-cache\.json(\.tmp)?|scripts(\/|$))/.test(req.path)) {
+    if (/^\/(server\.js|package\.json|package-lock\.json|translation-cache\.json(\.tmp)?|tts-cache(\/|$)|scripts(\/|$))/.test(req.path)) {
         return res.status(404).end();
     }
     next();
@@ -185,7 +185,59 @@ async function saveTranslationCache() {
 }
 setInterval(saveTranslationCache, 30 * 1000); // flush at most every 30s
 
+// === Text-to-speech cache ===
+// Natural-voice audio (OpenAI TTS) is expensive per call, so every generated
+// clip is cached to disk keyed by sha1(voice + text). A whole re-read of a book,
+// or replaying a word, is then free and instant. Audio is always synthesized at
+// speed 1.0; the client changes playbackRate, so speed never fragments the cache.
+const TTS_CACHE_DIR = path.join(__dirname, 'tts-cache');
+const TTS_MODEL = process.env.TTS_MODEL || 'gpt-4o-mini-tts';
+const TTS_VOICE = process.env.TTS_VOICE || 'alloy';
+fs.mkdir(TTS_CACHE_DIR, { recursive: true }).catch(() => {});
+function ttsCachePath(voice, text) {
+    const hash = crypto.createHash('sha1').update(`${voice}\n${text}`).digest('hex');
+    return path.join(TTS_CACHE_DIR, `${hash}.mp3`);
+}
+
 // === Routes ===
+
+// Natural-voice text-to-speech. Returns audio/mpeg; served from disk cache when
+// the same (voice, text) was synthesized before. Speed is applied client-side.
+app.post('/tts', async (req, res) => {
+    let { text, voice } = req.body || {};
+    if (!text || typeof text !== 'string') return res.status(400).json({ error: 'Missing text' });
+    text = text.trim().slice(0, 800); // cap length to bound cost/latency
+    if (!text) return res.status(400).json({ error: 'Empty text' });
+    voice = (typeof voice === 'string' && /^[a-z]+$/.test(voice)) ? voice : TTS_VOICE;
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'TTS is not configured (OpenAI key missing).' });
+
+    const cacheFile = ttsCachePath(voice, text);
+    try {
+        const cached = await fs.readFile(cacheFile);
+        res.set('Content-Type', 'audio/mpeg');
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.set('X-TTS-Cache', 'hit');
+        return res.send(cached);
+    } catch (_) { /* cache miss — synthesize below */ }
+
+    try {
+        const speech = await openai.audio.speech.create({
+            model: TTS_MODEL,
+            voice,
+            input: text,
+            response_format: 'mp3'
+        });
+        const buffer = Buffer.from(await speech.arrayBuffer());
+        fs.writeFile(cacheFile, buffer).catch(e => console.warn('TTS cache write failed:', e.message));
+        res.set('Content-Type', 'audio/mpeg');
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        res.set('X-TTS-Cache', 'miss');
+        return res.send(buffer);
+    } catch (e) {
+        console.warn('TTS synthesis failed:', e.message);
+        return res.status(502).json({ error: 'Could not synthesize speech.' });
+    }
+});
 
 app.post('/translate', async (req, res) => {
     const { text, target_lang } = req.body;

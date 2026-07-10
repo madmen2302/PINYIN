@@ -11,3 +11,4 @@ node_modules/
 
 # Runtime data (lives on the server, grows over time)
 translation-cache.json
+tts-cache/

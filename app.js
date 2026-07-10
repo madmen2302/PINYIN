@@ -449,6 +449,13 @@ async function loadDictionaryAndLibs() {
         loadFlashcards(); // === NEW ===
         populateVoiceList();
         voiceSelector.addEventListener('change', () => { try { localStorage.setItem('preferredVoice', voiceSelector.value); } catch (_) { /* ignore */ } });
+        if (speedSlider) {
+            try { const s = localStorage.getItem('preferredSpeed'); if (s) speedSlider.value = s; } catch (_) { /* ignore */ }
+            speedSlider.addEventListener('input', () => {
+                if (ttsAudioEl) ttsAudioEl.playbackRate = currentTtsRate(); // live speed change
+                try { localStorage.setItem('preferredSpeed', speedSlider.value); } catch (_) { /* ignore */ }
+            });
+        }
         loadUserMnemonics(); // === NEW ===
         if (speechSynthesis.onvoiceschanged !== undefined) {
             speechSynthesis.onvoiceschanged = populateVoiceList;
@@ -474,7 +481,13 @@ async function loadDictionaryAndLibs() {
 }
 
 // ======== EVENT LISTENERS ========
-document.body.addEventListener('click', () => { if (!userGestureMade) { userGestureMade = true; if ('speechSynthesis' in window) { window.speechSynthesis.speak(new SpeechSynthesisUtterance('')); } console.log("Audio unlocked."); } }, { once: true });
+document.body.addEventListener('click', () => {
+    if (userGestureMade) return;
+    userGestureMade = true;
+    // Unlock both audio paths within the first user gesture (iOS requires it).
+    if ('speechSynthesis' in window) window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    try { const a = getTtsAudio(); a.muted = true; a.play().catch(() => {}); a.pause(); a.muted = false; } catch (_) { /* ignore */ }
+}, { once: true });
 
 if (panelOverlay) {
     panelOverlay.addEventListener('click', () => {
@@ -533,6 +546,8 @@ document.addEventListener('keydown', (e) => {
 function stopAllAudio() {
     speechQueue = [];
     window.speechSynthesis.cancel();
+    ttsCurrentToken++; // invalidate any in-flight natural-voice playback
+    if (ttsAudioEl) { try { ttsAudioEl.pause(); } catch (_) { /* ignore */ } }
     isSpeaking = false;
     document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
     playAllFab.classList.remove('playing');
@@ -1599,6 +1614,19 @@ window.playSentenceWithHighlight = (sentence, buttonElement) => {
     stopAllAudio();
     playAllFab.classList.add('playing');
     if (soundStopFab) soundStopFab.classList.add('playing');
+    // Natural voice returns one clip for the whole sentence \u2014 play it and keep
+    // the sentence highlighted for the duration (no per-char boundaries to sync).
+    if (isNaturalVoiceSelected()) {
+        const els = sentenceGroup ? Array.from(sentenceGroup.querySelectorAll('.char')) : [];
+        els.forEach(el => el.classList.add('highlight'));
+        naturalSpeak(sentence, { onend: () => {
+            els.forEach(el => el.classList.remove('highlight'));
+            playAllFab.classList.remove('playing');
+            if (soundStopFab) soundStopFab.classList.remove('playing');
+            playCharListFab.classList.remove('playing');
+        }});
+        return;
+    }
     speechQueue = [...chars];
     speakFromQueueWithHighlight(sentenceGroup);
 }
@@ -1952,14 +1980,117 @@ function deleteSession(sessionId) {
 }
 
 // ======== UI & INTERACTIVITY (SPEECH, STROKES, DOWNLOADS) ========
+// === Natural voice (server TTS) ===
+// A sentinel voice option routes playback through the server's OpenAI TTS for
+// natural, human-sounding audio — and reliable playback on iOS, where
+// speechSynthesis is flaky. Each phrase is fetched once, cached as an object URL,
+// and played through a shared <audio> element whose playbackRate is the speed
+// control. Any failure (offline / server down) falls back to browser speech.
+const NATURAL_VOICE_VALUE = '__natural__';
+let ttsAudioEl = null;
+const ttsBlobCache = new Map(); // text -> object URL
+let ttsCurrentToken = 0;
+
+function getTtsAudio() {
+    if (!ttsAudioEl) { ttsAudioEl = new Audio(); ttsAudioEl.preload = 'auto'; }
+    return ttsAudioEl;
+}
+function currentTtsRate() {
+    const r = parseFloat(speedSlider?.value || '1');
+    return isNaN(r) ? 1 : Math.max(0.5, Math.min(2, r));
+}
+function isNaturalVoiceSelected() {
+    return voiceSelector && voiceSelector.value === NATURAL_VOICE_VALUE;
+}
+function stopAllSpeech() {
+    ttsCurrentToken++;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (ttsAudioEl) { try { ttsAudioEl.pause(); } catch (_) { /* ignore */ } }
+}
+
+async function fetchTtsUrl(text) {
+    if (ttsBlobCache.has(text)) return ttsBlobCache.get(text);
+    const resp = await fetch(`${backendUrl}/tts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+    });
+    if (!resp.ok) throw new Error('tts failed');
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    if (ttsBlobCache.size > 200) { // bound memory
+        const first = ttsBlobCache.keys().next().value;
+        URL.revokeObjectURL(ttsBlobCache.get(first));
+        ttsBlobCache.delete(first);
+    }
+    ttsBlobCache.set(text, url);
+    return url;
+}
+
+// Play text with the natural voice; resolves when playback ends. Falls back to
+// browser speech on any failure so audio still plays offline / when the key is
+// unset. onstart/onend let callers drive highlighting.
+function naturalSpeak(text, { onstart, onend } = {}) {
+    return new Promise((resolve) => {
+        const token = ++ttsCurrentToken;
+        const audio = getTtsAudio();
+        try { window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
+        try { audio.pause(); } catch (_) { /* ignore */ }
+        const finish = () => { if (onend) onend(); resolve(); };
+        fetchTtsUrl(text).then(url => {
+            if (token !== ttsCurrentToken) return resolve(); // superseded by a newer request
+            audio.src = url;
+            audio.playbackRate = currentTtsRate();
+            audio.onended = () => { if (token === ttsCurrentToken) finish(); };
+            audio.onerror = () => { if (token === ttsCurrentToken) browserSpeak(text, { onstart, onend: finish }); };
+            if (onstart) onstart();
+            const p = audio.play();
+            if (p && p.catch) p.catch(() => { if (token === ttsCurrentToken) browserSpeak(text, { onstart, onend: finish }); });
+        }).catch(() => {
+            if (token !== ttsCurrentToken) return resolve();
+            browserSpeak(text, { onstart, onend: finish });
+        });
+    });
+}
+
+// Speak with the browser's speechSynthesis (used for non-natural voices and as
+// the fallback path).
+function browserSpeak(text, { onstart, onend } = {}) {
+    if (!('speechSynthesis' in window)) { if (onend) onend(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    const v = availableVoices.find(voice => voice.name === voiceSelector.value);
+    if (v) u.voice = v;
+    u.lang = 'zh-CN';
+    u.rate = currentTtsRate();
+    if (onstart) u.onstart = onstart;
+    u.onend = () => { if (onend) onend(); };
+    u.onerror = () => { if (onend) onend(); };
+    window.speechSynthesis.speak(u);
+}
+
+// Unified single-phrase speak used across the app.
+function speakSmart(text, opts) {
+    if (isNaturalVoiceSelected()) return naturalSpeak(text, opts);
+    browserSpeak(text, opts);
+    return Promise.resolve();
+}
+
 window.requestSpeech = (text) => {
+    stopAllSpeech();
     speechQueue = [];
-    window.speechSynthesis.cancel();
     isSpeaking = false;
-    const repeatCount = parseInt(repeatCountSelector.value, 10);
+    const repeatCount = parseInt(repeatCountSelector.value, 10) || 1;
+    playAllFab.classList.add('playing');
+    if (isNaturalVoiceSelected()) {
+        let i = 0;
+        const playNext = () => {
+            if (i++ >= repeatCount) { playAllFab.classList.remove('playing'); playCharListFab.classList.remove('playing'); return; }
+            naturalSpeak(text, { onend: () => setTimeout(playNext, 120) });
+        };
+        playNext();
+        return;
+    }
     for (let i = 0; i < repeatCount; i++) { speechQueue.push(text); }
     speakFromQueue();
-    playAllFab.classList.add('playing');
 };
 function speakFromQueue() {
     if (isSpeaking || speechQueue.length === 0) {
@@ -1982,18 +2113,27 @@ function speakFromQueue() {
     window.speechSynthesis.speak(utterance);
 }
 function populateVoiceList() {
-    const previous = voiceSelector.value || localStorage.getItem('preferredVoice') || '';
+    let previous = voiceSelector.value || localStorage.getItem('preferredVoice') || NATURAL_VOICE_VALUE;
     availableVoices = speechSynthesis.getVoices().filter(voice => voice.lang.startsWith('zh'));
     voiceSelector.innerHTML = '';
-    if (availableVoices.length === 0) { voiceSelector.innerHTML = '<option>No Chinese voices</option>'; return; }
+    // Natural (AI) voice first — the default, and the only option that sounds
+    // human. Works even when the browser has no bundled Chinese voices.
+    const natOpt = document.createElement('option');
+    natOpt.textContent = '✨ Natural (AI) — recommended';
+    natOpt.value = NATURAL_VOICE_VALUE;
+    voiceSelector.appendChild(natOpt);
     for (const voice of availableVoices) {
         const option = document.createElement('option');
         option.textContent = `${voice.name} (${voice.lang})`;
         option.value = voice.name;
         voiceSelector.appendChild(option);
     }
-    // Preserve the user's choice across the repeated voiceschanged events.
-    if (previous && availableVoices.some(v => v.name === previous)) voiceSelector.value = previous;
+    // Preserve the user's choice across the repeated voiceschanged events;
+    // default to the natural voice.
+    if (previous !== NATURAL_VOICE_VALUE && !availableVoices.some(v => v.name === previous)) {
+        previous = NATURAL_VOICE_VALUE;
+    }
+    voiceSelector.value = previous;
 }
 
 function updateStatsDisplay(stats) {
@@ -2064,7 +2204,7 @@ function closeHanziModal() {
 window.showStrokes = async (char) => {
     closeHanziModal();
     loopingChar = char; // Set the current character for the animation loop
-    modalCloseBtn.style.display = 'none'; // Hide the default close button
+    modalCloseBtn.style.display = ''; // keep the Close button visible so the view is dismissable
 
     // === NEW: Navigation logic ===
     const session = getActiveSession();
@@ -2250,6 +2390,7 @@ function showModal(title, content) {
     closeHanziModal();
     modalTitle.textContent = title;
     modalBody.innerHTML = content;
+    modalCloseBtn.style.display = ''; // restore the Close button (showStrokes hides it)
     modal.classList.add('active');
 }
 
@@ -4143,13 +4284,14 @@ function gameCardInfoHtml(card) {
 }
 
 function speakOnce(text) {
+    if (isNaturalVoiceSelected()) { naturalSpeak(text); return; }
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const v = availableVoices.find(voice => voice.name === voiceSelector.value);
     if (v) u.voice = v;
     u.lang = 'zh-CN';
-    u.rate = parseFloat(speedSlider?.value || '0.9');
+    u.rate = currentTtsRate();
     window.speechSynthesis.speak(u);
 }
 
