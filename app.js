@@ -109,6 +109,10 @@ const testScore = document.getElementById('test-score');
 const testSkipBtn = document.getElementById('test-skip-btn');
 const flashcardFeedback = document.getElementById('flashcard-feedback');
 const flashcardDueIndicator = document.getElementById('flashcard-due-indicator');
+const sayFirstToggle = document.getElementById('say-first-toggle');
+const sayFirstBar = document.getElementById('say-first-bar');
+const sayFirstMic = document.getElementById('say-first-mic');
+const sayFirstStatus = document.getElementById('say-first-status');
 
 // === Radicals Elements ===
 const mnemonicModal = document.getElementById('mnemonic-modal');
@@ -635,16 +639,132 @@ flashcardTestModeCheckboxes.forEach(cb => {
 backToDecksBtn.addEventListener('click', showDeckManager);
 flashcardEl.addEventListener('click', (event) => {
     if (event.target.closest('.flashcard-writer')) return;
+    if (sayFirstFlipLocked()) { pulseSayFirstBar(); return; }
     flashcardEl.classList.toggle('flipped');
 });
 flashcardNextBtn.addEventListener('click', () => showFlashcard(currentFlashcardIndex + 1));
-flashcardFlipBtn.addEventListener('click', () => flashcardEl.classList.toggle('flipped'));
+flashcardFlipBtn.addEventListener('click', () => {
+    if (sayFirstFlipLocked()) { pulseSayFirstBar(); return; }
+    flashcardEl.classList.toggle('flipped');
+});
 flashcardAiBtn.addEventListener('click', () => showFlashcardAiInsight(false));
 flashcardPrevBtn.addEventListener('click', () => showFlashcard(currentFlashcardIndex - 1));
 testRightBtn.addEventListener('click', () => recordTestAnswer(true));
 testWrongBtn.addEventListener('click', () => recordTestAnswer(false));
 testSkipBtn.addEventListener('click', skipCurrentCard);
 downloadCsvBtn.addEventListener('click', downloadDeckAsCsv);
+
+// === Say-it-first gate ===
+// In test mode, optionally require the learner to say the card aloud before the
+// answer is revealed — active production before recognition. Whisper transcribes
+// the attempt and a bounded pinyin-equivalence check tells them if it matched;
+// either way, making an attempt unlocks the flip (we gate on effort, not accuracy,
+// so a Whisper miss never traps the learner).
+let sayFirstEnabled = false;
+try { sayFirstEnabled = localStorage.getItem('sayFirstGate') === '1'; } catch (_) { /* ignore */ }
+let sayFirstAttempted = false;
+let sayFirstRecorder = null, sayFirstStream = null, sayFirstChunks = [], sayFirstBusy = false;
+
+function sayFirstActive() {
+    return sayFirstEnabled && currentTestSession && currentTestSession.mode === 'test';
+}
+function sayFirstFlipLocked() {
+    return sayFirstActive() && !sayFirstAttempted && flashcardEl && !flashcardEl.classList.contains('flipped');
+}
+function updateSayFirstToggleLabel() {
+    if (!sayFirstToggle) return;
+    sayFirstToggle.textContent = `🎤 Say-it-first: ${sayFirstEnabled ? 'On' : 'Off'}`;
+    sayFirstToggle.classList.toggle('active', sayFirstEnabled);
+}
+if (sayFirstToggle) {
+    updateSayFirstToggleLabel();
+    sayFirstToggle.addEventListener('click', () => {
+        sayFirstEnabled = !sayFirstEnabled;
+        try { localStorage.setItem('sayFirstGate', sayFirstEnabled ? '1' : '0'); } catch (_) { /* ignore */ }
+        updateSayFirstToggleLabel();
+        updateSayFirstGate(currentTestSession ? currentTestSession.cards[currentFlashcardIndex] : null);
+    });
+}
+if (sayFirstMic) sayFirstMic.addEventListener('click', toggleSayFirstRecording);
+
+// Show/reset the gate for the current card. Called on each card render and when
+// the toggle flips.
+function updateSayFirstGate(card) {
+    const inTest = !!(currentTestSession && currentTestSession.mode === 'test');
+    if (sayFirstToggle) sayFirstToggle.style.display = inTest ? 'inline-flex' : 'none';
+    if (!sayFirstBar) return;
+    if (!sayFirstActive() || !card) { sayFirstBar.style.display = 'none'; return; }
+    sayFirstAttempted = false;
+    sayFirstBar.style.display = 'flex';
+    sayFirstBar.classList.remove('unlocked');
+    if (sayFirstMic) { sayFirstMic.classList.remove('recording'); sayFirstMic.textContent = '🎤 Say it, then flip'; sayFirstMic.disabled = false; }
+    if (sayFirstStatus) sayFirstStatus.textContent = '';
+}
+
+function pulseSayFirstBar() {
+    if (!sayFirstBar) return;
+    sayFirstBar.classList.remove('pulse');
+    void sayFirstBar.offsetWidth; // restart the animation
+    sayFirstBar.classList.add('pulse');
+    if (sayFirstStatus && !sayFirstStatus.textContent) sayFirstStatus.textContent = 'Say it aloud first ↑';
+}
+
+async function toggleSayFirstRecording() {
+    if (sayFirstBusy) return;
+    if (sayFirstRecorder && sayFirstRecorder.state === 'recording') { sayFirstRecorder.stop(); return; }
+    try {
+        sayFirstStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        if (sayFirstStatus) sayFirstStatus.textContent = 'Mic denied — flipping anyway.';
+        sayFirstAttempted = true; // don't trap the learner
+        return;
+    }
+    sayFirstChunks = [];
+    try {
+        sayFirstRecorder = makeRecorder(sayFirstStream);
+    } catch (e) {
+        sayFirstStream.getTracks().forEach(t => t.stop()); sayFirstStream = null;
+        if (sayFirstStatus) sayFirstStatus.textContent = "Recording unsupported — flip freely.";
+        sayFirstAttempted = true;
+        return;
+    }
+    sayFirstRecorder.ondataavailable = e => { if (e.data.size) sayFirstChunks.push(e.data); };
+    sayFirstRecorder.onstop = evaluateSayFirst;
+    sayFirstRecorder.start();
+    if (sayFirstMic) { sayFirstMic.classList.add('recording'); sayFirstMic.textContent = '⏹ Stop'; }
+    if (sayFirstStatus) sayFirstStatus.textContent = 'Listening…';
+}
+
+async function evaluateSayFirst() {
+    if (sayFirstStream) { sayFirstStream.getTracks().forEach(t => t.stop()); sayFirstStream = null; }
+    if (sayFirstMic) { sayFirstMic.classList.remove('recording'); sayFirstMic.textContent = '🎤 Say it, then flip'; }
+    const card = currentTestSession && currentTestSession.cards[currentFlashcardIndex];
+    if (!card || sayFirstChunks.length === 0) { sayFirstAttempted = true; revealAfterSayFirst(); return; }
+    sayFirstBusy = true;
+    if (sayFirstMic) sayFirstMic.disabled = true;
+    if (sayFirstStatus) sayFirstStatus.textContent = 'Checking…';
+    try {
+        const blob = new Blob(sayFirstChunks, { type: (sayFirstChunks[0] && sayFirstChunks[0].type) || 'audio/webm' });
+        const result = await sendBlobToWhisper(blob, card.char);
+        const { correct, heard } = comparePronunciation(card, result.text || '');
+        if (sayFirstStatus) sayFirstStatus.innerHTML = correct
+            ? `<span style="color:var(--success-color);font-weight:700;">✅ Heard: ${escapeHtml(heard)}</span>`
+            : `Heard: ${escapeHtml(heard)}`;
+    } catch (e) {
+        if (sayFirstStatus) sayFirstStatus.textContent = 'Could not check — revealing.';
+    } finally {
+        sayFirstBusy = false;
+        if (sayFirstMic) sayFirstMic.disabled = false;
+        sayFirstAttempted = true;
+        revealAfterSayFirst();
+    }
+}
+
+// After an attempt, unlock and flip to the answer.
+function revealAfterSayFirst() {
+    if (sayFirstBar) sayFirstBar.classList.add('unlocked');
+    if (flashcardEl && !flashcardEl.classList.contains('flipped')) flashcardEl.classList.add('flipped');
+}
 
 // Wire up the "Your Mnemonic" modal (Save / Cancel / backdrop) — was inert.
 if (mnemonicModal) {
@@ -2992,6 +3112,7 @@ async function showFlashcard(index) {
         renderCardFace(flashcardBack, flashcardConfig.back, card, 'back', renderToken)
     ]);
     updateFlashcardProgress(card);
+    updateSayFirstGate(card);
 }
 
 async function renderCardFace(target, types, card, faceKey, token) {
@@ -3214,6 +3335,9 @@ function updateCardStats(card, isCorrect) {
 function finishFlashcardSession(showSummary = true) {
     if (!currentTestSession) return;
     const summary = currentTestSession;
+    if (sayFirstBar) sayFirstBar.style.display = 'none';
+    if (sayFirstToggle) sayFirstToggle.style.display = 'none';
+    if (sayFirstRecorder && sayFirstRecorder.state === 'recording') { try { sayFirstRecorder.stop(); } catch (_) { /* ignore */ } }
     showDeckManager();
     if (showSummary && summary.mode === 'test') {
         alert(`Test complete!\nCorrect: ${summary.correct}\nWrong: ${summary.wrong}\nSkipped: ${summary.skipped}`);

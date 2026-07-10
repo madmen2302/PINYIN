@@ -454,6 +454,20 @@
         #flashcard-test-controls button { flex: 1; padding: 1rem; border-radius: 12px; border: none; font-weight: bold; color: white; cursor: pointer; }
         .danger { background: var(--danger-color); } .success { background: var(--success-color); } .neutral { background: var(--text-secondary); }
 
+        /* --- Say-it-first gate --- */
+        #say-first-toggle { border: 1px solid var(--border-hairline); background: var(--card-bg); color: var(--text-secondary); font-weight: 600; font-size: 0.78rem; padding: 0.3rem 0.7rem; border-radius: 999px; cursor: pointer; align-items: center; }
+        #say-first-toggle.active { background: var(--accent-soft); border-color: var(--accent-color); color: var(--accent-color); }
+        #say-first-bar { display: none; align-items: center; justify-content: center; gap: 0.75rem; flex-wrap: wrap; margin: 0.5rem 0; padding: 0.6rem 0.8rem; border-radius: 14px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent); }
+        #say-first-bar.unlocked { background: var(--card-bg); border-color: var(--border-hairline); }
+        #say-first-mic { padding: 0.55rem 1.1rem; border-radius: 999px; border: none; background: var(--accent-grad); color: #fff; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-sm); }
+        #say-first-mic.recording { animation: sayFirstPulse 1s ease-in-out infinite; background: var(--danger-color); }
+        #say-first-mic:disabled { opacity: 0.6; cursor: default; }
+        #say-first-status { font-size: 0.9rem; color: var(--text-secondary); font-weight: 600; }
+        #say-first-bar.pulse { animation: sayFirstShake 0.4s ease; }
+        @keyframes sayFirstPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+        @keyframes sayFirstShake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        @media (prefers-reduced-motion: reduce) { #say-first-mic.recording, #say-first-bar.pulse { animation: none; } }
+
         /* ======== UTILITY & TOP RIGHT CONTROLS ======== */
         .top-right-controls { position: absolute; top: 1rem; right: 1.5rem; display: flex; gap: 0.75rem; align-items: center; z-index: 10; }
         .top-right-group { display: flex; align-items: center; gap: 0.5rem; background: var(--panel-bg); padding: 0.1rem 0.3rem; border-radius: 999px; border: 1px solid var(--border-color); }
@@ -1212,8 +1226,9 @@
                 </section>
 
                 <section id="flashcard-viewer" style="display: none; height: 100%; flex-direction: column;">
-                    <div id="flashcard-progress" style="display: flex; justify-content: space-between; padding-bottom: 0.5rem;">
+                    <div id="flashcard-progress" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem;">
                         <span id="flashcard-counter">1 / 1</span>
+                        <button id="say-first-toggle" type="button" style="display: none;" title="Require you to say the card aloud before the answer is revealed">🎤 Say-it-first: Off</button>
                         <span id="flashcard-due-indicator"></span>
                     </div>
                     <div id="flashcard">
@@ -1221,6 +1236,10 @@
                             <div id="flashcard-front" class="flashcard-face"></div>
                             <div id="flashcard-back" class="flashcard-face"></div>
                         </div>
+                    </div>
+                    <div id="say-first-bar" style="display: none;">
+                        <button id="say-first-mic" type="button">🎤 Say it, then flip</button>
+                        <span id="say-first-status"></span>
                     </div>
                     <div id="flashcard-nav">
                         <button id="flashcard-prev-btn" class="study-nav">Prev</button>
