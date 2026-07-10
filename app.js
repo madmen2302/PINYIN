@@ -6450,7 +6450,9 @@ async function selectSong(id, name, autoStartSec) {
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Could not load lyrics.');
         const lines = parseLrc(data.lrc);
-        if (lines.length === 0) throw new Error('No time-synced lyrics available for this song.');
+        if (lines.length === 0 || data.available === false) {
+            throw new Error('This recording has no synced lyrics (often the licensed original). Tap ‹ Back and pick another version of the song.');
+        }
         const transMap = {};
         for (const l of parseLrc(data.tlyric)) transMap[l.t.toFixed(1)] = l.text;
         renderKaraokePlayer(name, lines, transMap);

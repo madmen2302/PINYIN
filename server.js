@@ -704,7 +704,12 @@ app.get('/song-lyric', async (req, res) => {
     try {
         const resp = await fetch(`https://music.163.com/api/song/lyric?os=pc&id=${encodeURIComponent(id)}&lv=-1&kv=-1&tv=-1`, { headers: NETEASE_HEADERS });
         const data = await resp.json();
-        res.json({ lrc: data?.lrc?.lyric || '', tlyric: data?.tlyric?.lyric || '' });
+        const lrc = data?.lrc?.lyric || '';
+        // Some (often the licensed "original") tracks expose no lyrics — the free
+        // API returns "暂无歌词". Flag that so the client can suggest another take.
+        const stripped = lrc.replace(/\[[0-9:.]+\]/g, '').replace(/\s/g, '');
+        const available = stripped.length > 20 && !/暂无歌词|纯音乐|純音樂/.test(stripped);
+        res.json({ lrc, tlyric: data?.tlyric?.lyric || '', available });
     } catch (error) {
         console.error('Song lyric error:', error.message);
         res.status(502).json({ error: 'Could not fetch lyrics.' });
