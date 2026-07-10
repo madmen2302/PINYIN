@@ -5622,20 +5622,36 @@ function readerPinyinTone(ch) {
     return { py: o.pinyin || '', tone: m ? m[0] : '5' };
 }
 
+// One tone-colored, tappable character (opens its individual meaning card).
+function renderCharRuby(ch, known) {
+    const { py, tone } = readerPinyinTone(ch);
+    const newClass = known && !known.has(ch) ? ' new-char' : '';
+    const heat = readerHeat && readerHeat.get(ch);
+    const heatClass = heat ? ` rd-heat-${heat}` : '';
+    return `<ruby class="rd-char tone-${tone}${newClass}${heatClass}" data-char="${escapeHtml(ch)}" onclick="event.stopPropagation(); window.readerCharInfo(this)">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
+}
+
 function renderReaderParagraph(text, known) {
     let inner = '';
-    for (const ch of text) {
-        if (chineseCharRegex.test(ch)) {
-            const { py, tone } = readerPinyinTone(ch);
-            const newClass = known && !known.has(ch) ? ' new-char' : '';
-            const heat = readerHeat && readerHeat.get(ch);
-            const heatClass = heat ? ` rd-heat-${heat}` : '';
-            inner += `<ruby class="rd-char tone-${tone}${newClass}${heatClass}" data-char="${escapeHtml(ch)}" onclick="window.readerCharInfo(this)">${escapeHtml(ch)}<rt>${escapeHtml(py)}</rt></ruby>`;
-        } else {
-            inner += escapeHtml(ch);
-        }
+    // Segment into words (like the dashboard) so a multi-character word is one
+    // tap target for its combined meaning, while each character inside is still
+    // individually tappable for its own meaning.
+    let tokens = null;
+    if (segmentit && typeof segmentit.doSegment === 'function') {
+        try { tokens = segmentit.doSegment(text, { simple: true }).map(t => t.w || t); } catch (_) { tokens = null; }
     }
-    return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-translate" onclick="window.readerTranslate(this)">译</button><button class="rd-register" onclick="window.readerRegister(this)" title="Casual / formal / slang">语</button><span class="rd-en"></span><div class="rd-registers"></div></p>`;
+    if (!tokens) tokens = Array.from(text); // fallback: character by character
+    for (const tok of tokens) {
+        const s = String(tok);
+        if (!chineseCharRegex.test(s)) { inner += escapeHtml(s); continue; }
+        let rubies = '';
+        for (const ch of s) rubies += chineseCharRegex.test(ch) ? renderCharRuby(ch, known) : escapeHtml(ch);
+        // Wrap real multi-character words; a single char needs no wrapper.
+        inner += (Array.from(s).length > 1)
+            ? `<span class="rd-word" data-word="${escapeHtml(s)}" onclick="window.readerWordInfo(this)">${rubies}</span>`
+            : rubies;
+    }
+    return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-play" onclick="window.readerPlayParagraph(this)" title="Read this paragraph aloud" aria-label="Read this paragraph aloud">🔊</button><button class="rd-translate" onclick="window.readerTranslate(this)" title="Show English translation" aria-label="Show English translation">译</button><button class="rd-register" onclick="window.readerRegister(this)" title="Formal / casual / slang variants" aria-label="Register variants">语</button><span class="rd-en"></span><div class="rd-registers"></div></p>`;
 }
 
 // Register Lens: show the sentence in casual / formal / internet-slang forms.
@@ -5701,7 +5717,12 @@ async function openDailySerial() {
 // (local, no API), a button to the stroke view, and "Add to flashcards" which
 // captures the SOURCE SENTENCE with the card (Context Resurrection).
 let readerCharSentence = '';
+
+// Speak a word/phrase on demand from the reader (natural voice when selected).
+window.readerSpeak = (text) => { if (readerAloud.active) stopReaderAloud(); stopAllSpeech(); speakSmart(text); };
+
 window.readerCharInfo = (elOrChar) => {
+    if (readerAloud.active) stopReaderAloud();
     let char, sentence = '';
     if (elOrChar && elOrChar.dataset) {
         char = elOrChar.dataset.char;
@@ -5715,13 +5736,54 @@ window.readerCharInfo = (elOrChar) => {
     showModal('', `
         <div class="char-info-card">
             <div class="char-info-hanzi">${escapeHtml(char)}</div>
-            <div class="char-info-py">${escapeHtml(py)}</div>
+            <div class="char-info-py">${escapeHtml(py)} <button class="reader-play-inline" onclick="window.readerSpeak('${escapeHtml(char)}')" title="Hear it" aria-label="Hear it">🔊</button></div>
             <div class="char-info-def">${escapeHtml(full)}</div>
             <div class="char-info-actions">
-                <button class="modal-btn" onclick="window.showStrokes('${char}')">Strokes</button>
-                <button class="modal-btn primary" onclick="window.addReaderWordToDeck('${char}')">＋ Flashcard</button>
+                <button class="modal-btn" onclick="window.showStrokes('${escapeHtml(char)}')">Strokes</button>
+                <button class="modal-btn primary" onclick="window.addReaderWordToDeck('${escapeHtml(char)}')">＋ Flashcard</button>
             </div>
         </div>`);
+    speakSmart(char); // auto-play the pronunciation on tap
+};
+
+// Word card: combined meaning of a segmented word, its component characters as
+// chips (each opens its own char card), a replay button, and add-to-deck.
+window.readerWordInfo = (el) => {
+    if (readerAloud.active) stopReaderAloud();
+    const word = el.dataset.word;
+    const para = el.closest('.rd-para');
+    readerCharSentence = (para && para.dataset) ? para.dataset.zh : '';
+    const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(word, { toneType: 'symbol' }) : '';
+    const wordDef = (dictionary && dictionary[word]) ? dictionary[word] : '';
+    const chars = Array.from(word).filter(c => chineseCharRegex.test(c));
+    const chips = chars.map(c => `<button class="reader-char-chip tone-${readerToneNumber(c)}" onclick="window.readerCharInfo('${escapeHtml(c)}')">${escapeHtml(c)}</button>`).join('');
+    const defHtml = wordDef
+        ? escapeHtml(wordDef)
+        : '<span class="info">No combined dictionary entry — tap a character below for its meaning.</span>';
+    showModal('', `
+        <div class="char-info-card">
+            <div class="char-info-hanzi">${escapeHtml(word)}</div>
+            <div class="char-info-py">${escapeHtml(py)} <button class="reader-play-inline" onclick="window.readerSpeak('${escapeHtml(word)}')" title="Hear it" aria-label="Hear it">🔊</button></div>
+            <div class="char-info-def">${defHtml}</div>
+            <div class="reader-char-chips">${chips}</div>
+            <div class="char-info-actions">
+                <button class="modal-btn primary" onclick="window.addReaderWordToDeck('${escapeHtml(word)}')">＋ Flashcard</button>
+            </div>
+        </div>`);
+    speakSmart(word); // auto-play the word on tap
+};
+
+// Read one paragraph aloud (its 🔊 button), highlighting it while it plays.
+window.readerPlayParagraph = (btn) => {
+    const para = btn.closest('.rd-para');
+    if (!para) return;
+    if (readerAloud.active) stopReaderAloud();
+    stopAllSpeech();
+    document.querySelectorAll('.rd-para.speaking').forEach(p => p.classList.remove('speaking'));
+    para.classList.add('speaking');
+    const done = () => para.classList.remove('speaking');
+    if (isNaturalVoiceSelected()) naturalSpeak(para.dataset.zh, { onend: done });
+    else { browserSpeak(para.dataset.zh, { onend: done }); }
 };
 
 // Add a word to the active deck (creating a "Reading" deck if none), keeping
@@ -5774,17 +5836,25 @@ function ensureReaderOverlay() {
                 <select id="reader-chapter-select" aria-label="Jump to chapter"></select>
                 <button class="reader-nav-btn" id="reader-next" aria-label="Next chapter">›</button>
             </div>
-            <button class="modal-btn" id="reader-heat-toggle" title="Highlight words your memory is losing — reading them reviews them">🔥 Heat</button>
-            <button class="modal-btn" id="reader-close">Close</button>
+            <button class="reader-nav-btn" id="reader-aloud-toggle" title="Read aloud like an audiobook" aria-label="Read aloud">🎧</button>
+            <button class="reader-nav-btn" id="reader-heat-toggle" title="Highlight words your memory is losing — reading them reviews them" aria-label="Retrievability heat map">🔥</button>
+            <button class="reader-nav-btn reader-close-btn" id="reader-close" aria-label="Close reader">✕</button>
         </div>
         <div id="reader-heat-legend">
             <span class="rd-heat-key">Memory fading:</span>
             <span class="rd-heat-swatch rd-heat-1"></span><span class="rd-heat-lbl">fresh</span>
             <span class="rd-heat-swatch rd-heat-2"></span><span class="rd-heat-lbl">fading</span>
-            <span class="rd-heat-swatch rd-heat-3"></span><span class="rd-heat-lbl">due — review as you read</span>
+            <span class="rd-heat-swatch rd-heat-3"></span><span class="rd-heat-lbl">due</span>
         </div>
-        <div id="reader-content"></div>`;
+        <div id="reader-content"></div>
+        <div id="reader-transport">
+            <span id="reader-transport-status">Reading…</span>
+            <button id="reader-transport-play" class="reader-transport-btn" aria-label="Play or pause">⏸</button>
+            <button id="reader-transport-speed" class="reader-transport-chip" title="Playback speed">1×</button>
+            <button id="reader-transport-stop" class="reader-transport-chip" aria-label="Stop reading">Stop</button>
+        </div>`;
     document.body.appendChild(o);
+    wireReaderTransport(o);
     const heatBtn = o.querySelector('#reader-heat-toggle');
     const applyHeatState = (on) => {
         o.querySelector('#reader-content').classList.toggle('heat-on', on);
@@ -5796,7 +5866,12 @@ function ensureReaderOverlay() {
         applyHeatState(on);
         try { localStorage.setItem('readerHeatOn', on ? '1' : '0'); } catch (_) { /* ignore */ }
     });
+    o.querySelector('#reader-aloud-toggle').addEventListener('click', () => {
+        if (readerAloud.active) stopReaderAloud();
+        else startReaderAloud();
+    });
     o.querySelector('#reader-close').addEventListener('click', () => {
+        stopReaderAloud();
         o.classList.remove('active');
         if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
         if (readerHydrateObserver) { readerHydrateObserver.disconnect(); readerHydrateObserver = null; }
@@ -5812,6 +5887,134 @@ function ensureReaderOverlay() {
     o.querySelector('#reader-prev').addEventListener('click', () => jump(-1));
     o.querySelector('#reader-next').addEventListener('click', () => jump(1));
     return o;
+}
+
+// === Reader read-aloud (audiobook mode) ===
+// Plays the book paragraph by paragraph with the natural voice, highlighting and
+// scrolling to each, auto-advancing across chapters (hydrating them as it goes).
+const readerAloud = { active: false, paused: false, i: 0 };
+const READER_SPEEDS = [0.75, 1, 1.25, 1.5];
+
+function wireReaderTransport(o) {
+    o.querySelector('#reader-transport-play').addEventListener('click', () => {
+        if (readerAloud.paused) resumeReaderAloud(); else pauseReaderAloud();
+    });
+    o.querySelector('#reader-transport-stop').addEventListener('click', stopReaderAloud);
+    o.querySelector('#reader-transport-speed').addEventListener('click', () => {
+        const cur = currentTtsRate();
+        let next = READER_SPEEDS.find(s => s > cur + 0.001);
+        if (next === undefined) next = READER_SPEEDS[0];
+        if (speedSlider) speedSlider.value = String(next);
+        if (ttsAudioEl) ttsAudioEl.playbackRate = next;
+        try { localStorage.setItem('preferredSpeed', String(next)); } catch (_) { /* ignore */ }
+        updateReaderTransport();
+    });
+}
+
+function readerAloudParas() {
+    return Array.from(document.querySelectorAll('#reader-content .rd-para'));
+}
+
+function updateReaderTransport() {
+    const o = document.getElementById('reader-overlay');
+    if (!o) return;
+    const playBtn = o.querySelector('#reader-transport-play');
+    const status = o.querySelector('#reader-transport-status');
+    const speed = o.querySelector('#reader-transport-speed');
+    if (playBtn) playBtn.textContent = readerAloud.paused ? '▶' : '⏸';
+    if (status) status.textContent = readerAloud.paused ? 'Paused' : 'Reading aloud…';
+    if (speed) { const r = currentTtsRate(); speed.textContent = (Number.isInteger(r) ? r : r) + '×'; }
+    const toggle = o.querySelector('#reader-aloud-toggle');
+    if (toggle) toggle.classList.toggle('active', readerAloud.active);
+}
+
+function startReaderAloud(startEl) {
+    const o = document.getElementById('reader-overlay');
+    if (!o) return;
+    readerAloud.active = true;
+    readerAloud.paused = false;
+    const paras = readerAloudParas();
+    let idx = 0;
+    if (startEl) {
+        idx = paras.indexOf(startEl);
+    } else {
+        // start from the first paragraph at/below the current scroll position
+        const content = document.getElementById('reader-content');
+        const top = content.getBoundingClientRect().top;
+        idx = paras.findIndex(p => p.getBoundingClientRect().bottom > top + 60);
+    }
+    readerAloud.i = idx < 0 ? 0 : idx;
+    o.querySelector('#reader-transport').classList.add('active');
+    document.getElementById('reader-content').classList.add('aloud-active');
+    updateReaderTransport();
+    readerAloudPlayCurrent();
+}
+
+function readerAloudPlayCurrent() {
+    if (!readerAloud.active || readerAloud.paused) return;
+    let paras = readerAloudParas();
+    if (readerAloud.i >= paras.length) {
+        // reached the end of loaded content — try to hydrate the next chapter
+        const last = paras[paras.length - 1];
+        const sec = last ? last.closest('.rd-chapter') : null;
+        const chIdx = sec ? (+sec.dataset.idx) : -1;
+        if (chIdx >= 0 && readerBook && chIdx + 1 < readerBook.chapters.length) {
+            hydrateReaderChapter(chIdx + 1);
+            paras = readerAloudParas();
+        }
+    }
+    const para = paras[readerAloud.i];
+    if (!para) { stopReaderAloud(); return; } // whole book finished
+    document.querySelectorAll('.rd-para.speaking').forEach(p => p.classList.remove('speaking'));
+    para.classList.add('speaking');
+    para.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const text = para.dataset.zh || '';
+    const advance = () => {
+        para.classList.remove('speaking');
+        if (!readerAloud.active || readerAloud.paused) return;
+        readerAloud.i++;
+        readerAloudPlayCurrent();
+    };
+    if (!text.trim()) { advance(); return; }
+    if (isNaturalVoiceSelected()) naturalSpeak(text, { onend: advance });
+    else browserSpeak(text, { onend: advance });
+}
+
+function pauseReaderAloud() {
+    if (!readerAloud.active) return;
+    readerAloud.paused = true;
+    if (ttsAudioEl) { try { ttsAudioEl.pause(); } catch (_) { /* ignore */ } }
+    if ('speechSynthesis' in window) { try { window.speechSynthesis.pause(); } catch (_) { /* ignore */ } }
+    updateReaderTransport();
+}
+
+function resumeReaderAloud() {
+    if (!readerAloud.active) return;
+    readerAloud.paused = false;
+    updateReaderTransport();
+    // Resume in place when possible; otherwise replay the current paragraph.
+    if (ttsAudioEl && ttsAudioEl.src && !ttsAudioEl.ended && ttsAudioEl.currentTime > 0) {
+        const p = ttsAudioEl.play(); if (p && p.catch) p.catch(() => readerAloudPlayCurrent());
+    } else if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+    } else {
+        readerAloudPlayCurrent();
+    }
+}
+
+function stopReaderAloud() {
+    if (!readerAloud.active) return;
+    readerAloud.active = false;
+    readerAloud.paused = false;
+    stopAllSpeech();
+    document.querySelectorAll('.rd-para.speaking').forEach(p => p.classList.remove('speaking'));
+    const o = document.getElementById('reader-overlay');
+    if (o) {
+        o.querySelector('#reader-transport').classList.remove('active');
+        const content = document.getElementById('reader-content');
+        if (content) content.classList.remove('aloud-active');
+        updateReaderTransport();
+    }
 }
 
 let readerBook = null;

@@ -858,6 +858,33 @@
         .char-info-py { color: var(--accent-color); font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
         .char-info-def { color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.5; }
         .char-info-actions { display: flex; gap: 0.5rem; justify-content: center; }
+        /* Inline hear-it button + word component chips in the reader cards */
+        .reader-play-inline { border: 1px solid var(--border-hairline); background: var(--input-bg); border-radius: 999px; padding: 0.1rem 0.55rem; font-size: 0.95rem; cursor: pointer; vertical-align: middle; margin-left: 0.4rem; }
+        .reader-play-inline:hover { border-color: var(--accent-color); }
+        .reader-char-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; margin: 0 0 1rem; }
+        .reader-char-chip { font-family: "KaiTi","楷体",serif; font-size: 1.5rem; line-height: 1; padding: 0.35rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--card-bg); cursor: pointer; }
+        .reader-char-chip:hover { border-color: var(--accent-color); transform: translateY(-1px); }
+        /* Word grouping: a multi-character word is one hover/tap target */
+        .rd-word { border-radius: 6px; padding: 0 1px; transition: background 0.15s; cursor: pointer; }
+        .rd-word:hover { background: color-mix(in srgb, var(--accent-2) 12%, transparent); }
+        .rd-play { display: inline-block; margin-left: 0.4rem; font-size: 0.85rem; padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); cursor: pointer; vertical-align: middle; }
+        .rd-play:hover { border-color: var(--accent-color); }
+        .rd-para.speaking { background: color-mix(in srgb, var(--accent-color) 9%, transparent); border-radius: 10px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent-color) 9%, transparent); }
+        .reader-close-btn { font-size: 1.05rem !important; }
+        #reader-content.aloud-active { padding-bottom: 7rem; }
+        /* Reader read-aloud transport (bottom bar) */
+        #reader-transport {
+            position: sticky; bottom: 0; z-index: 6; display: none; align-items: center; gap: 0.75rem;
+            padding: 0.7rem 1rem; padding-bottom: calc(0.7rem + env(safe-area-inset-bottom));
+            background: var(--glass-bg-opaque); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+            border-top: 1px solid var(--border-hairline);
+        }
+        #reader-transport.active { display: flex; }
+        #reader-transport-status { flex: 1; min-width: 0; color: var(--text-secondary); font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .reader-transport-btn { width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--accent-grad); color: #fff; font-size: 1.2rem; cursor: pointer; box-shadow: 0 4px 14px var(--accent-glow); flex-shrink: 0; }
+        .reader-transport-chip { border: 1px solid var(--border-hairline); background: var(--input-bg); color: var(--text-main); border-radius: 999px; padding: 0.5rem 0.9rem; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+        .reader-transport-chip:hover { border-color: var(--accent-color); color: var(--accent-color); }
+        #reader-aloud-toggle.active, #reader-heat-toggle.active { border-color: var(--accent-color); color: var(--accent-color); background: var(--accent-soft); }
         .flashcard-sentence { font-size: 1.3rem; line-height: 2.1; text-align: center; margin: 0.5rem 0; }
         ruby.rd-char-hl { background: var(--accent-glow); border-radius: 5px; }
 
