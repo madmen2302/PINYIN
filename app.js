@@ -3923,6 +3923,36 @@ function toggleCategoryFilter(button) {
 const gameSession = { type: null, cards: [], index: 0, score: 0, total: 0 };
 let gamesModalEl = null;
 
+// --- Confusion Graph: aggregate every game mistake so we can drill trouble spots ---
+// miss:  { "字": count }            — how often a target character was missed
+// pairs: { "字→子": count }         — target character confused with a chosen one
+let confusionData = { miss: {}, pairs: {} };
+(function loadConfusionData() {
+    try {
+        const raw = JSON.parse(localStorage.getItem('confusionData'));
+        if (raw && typeof raw === 'object') confusionData = raw;
+    } catch (e) { /* corrupt or empty — keep the default */ }
+    if (!confusionData.miss) confusionData.miss = {};
+    if (!confusionData.pairs) confusionData.pairs = {};
+})();
+
+function saveConfusionData() {
+    try { localStorage.setItem('confusionData', JSON.stringify(confusionData)); } catch (e) { /* quota — non-critical */ }
+}
+
+// Log a wrong answer. target = the character that should have been answered;
+// chosen = the character the learner picked instead (optional — only games where
+// the distractor is itself a character, i.e. Listen/Match, can build a real pair).
+function logGameMiss(target, chosen) {
+    if (!target || !chineseCharRegex.test(target)) return;
+    confusionData.miss[target] = (confusionData.miss[target] || 0) + 1;
+    if (chosen && chosen !== target && chineseCharRegex.test(chosen)) {
+        const key = `${target}→${chosen}`;
+        confusionData.pairs[key] = (confusionData.pairs[key] || 0) + 1;
+    }
+    saveConfusionData();
+}
+
 function gameShuffle(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -4008,7 +4038,7 @@ function openGamesHub(customCards) {
     }
 
     const deck = getActiveDeck();
-    const source = Array.isArray(customCards) ? 'from HSK practice'
+    const source = Array.isArray(customCards) ? 'from your selected words'
         : (deck && deck.cards.length ? `from "${escapeHtml(deck.name)}"` : 'from this session');
     body.innerHTML = `
         <p class="game-hub-sub">Playing with ${cards.length} characters ${source}.</p>
@@ -4033,9 +4063,18 @@ function openGamesHub(customCards) {
                 <span class="game-hub-name">Speak</span>
                 <span class="game-hub-desc">Say it aloud, check your pronunciation</span>
             </button>
+            ${confusionMissCount() ? `
+            <button class="game-hub-choice game-hub-trouble" data-game="trouble">
+                <span class="game-hub-emoji">🎯</span>
+                <span class="game-hub-name">Trouble spots</span>
+                <span class="game-hub-desc">Drill the ${confusionMissCount()} characters you keep missing</span>
+            </button>` : ''}
         </div>`;
     body.querySelectorAll('.game-hub-choice').forEach(btn => {
-        btn.addEventListener('click', () => startGame(btn.dataset.game, cards));
+        btn.addEventListener('click', () => {
+            if (btn.dataset.game === 'trouble') return showTroubleSpots();
+            startGame(btn.dataset.game, cards);
+        });
     });
     gamesModalEl.classList.add('active');
 }
@@ -4095,6 +4134,7 @@ function startMatchGame(allCards) {
             }
         } else {
             tile.classList.add('wrong');
+            logGameMiss(selected.dataset.key, tile.dataset.key);
             setTimeout(() => tile.classList.remove('wrong'), 450);
             selected.classList.remove('selected');
             selected = null;
@@ -4144,7 +4184,7 @@ function showQuizRound(allCards) {
             b.disabled = true;
             if (b.textContent === correct) b.classList.add('correct');
         });
-        if (isCorrect) gs.score++; else btn.classList.add('wrong');
+        if (isCorrect) gs.score++; else { btn.classList.add('wrong'); logGameMiss(card.char); }
         if (card._card) updateCardStats(card._card, isCorrect);
         if (isCorrect && card._hsk) markHskLearned(card._hsk);
         body.querySelector('#game-feedback').innerHTML = gameCardInfoHtml(card);
@@ -4188,7 +4228,7 @@ function showListenRound(allCards) {
             b.disabled = true;
             if (b.dataset.char === card.char) b.classList.add('correct');
         });
-        if (isCorrect) gs.score++; else btn.classList.add('wrong');
+        if (isCorrect) gs.score++; else { btn.classList.add('wrong'); logGameMiss(card.char, btn.dataset.char); }
         if (card._card) updateCardStats(card._card, isCorrect);
         if (isCorrect && card._hsk) markHskLearned(card._hsk);
         body.querySelector('#game-feedback').innerHTML = gameCardInfoHtml(card);
@@ -4288,7 +4328,7 @@ async function evaluateSpeech(btn, card, allCards) {
         const blob = new Blob(speakChunks, { type: (speakChunks[0] && speakChunks[0].type) || 'audio/webm' });
         const result = await sendBlobToWhisper(blob, card.char);
         const { correct, heard } = comparePronunciation(card, result.text || '');
-        if (correct) gameSession.score++;
+        if (correct) gameSession.score++; else logGameMiss(card.char);
         if (card._card) updateCardStats(card._card, correct);
         if (correct && card._hsk) markHskLearned(card._hsk);
         fb.innerHTML = (correct
@@ -4315,6 +4355,99 @@ function comparePronunciation(card, heardRaw) {
     const heardPy = window.pinyinPro?.pinyin(heard, { toneType: 'none' }) || '';
     const correct = !!targetPy && heardPy.split(/\s+/).includes(targetPy);
     return { correct, heard };
+}
+
+// --- Trouble spots: surface & drill the Confusion Graph the games have logged ---
+function confusionMissCount() {
+    return Object.keys(confusionData.miss || {}).length;
+}
+
+// Tone number (1-5) of a single character's first syllable, for coloring.
+function charToneNum(char) {
+    try {
+        const arr = window.pinyinPro?.pinyin(char, { toneType: 'num', type: 'array' }) || [];
+        const m = (arr[0] || '').match(/[1-5]/);
+        return m ? m[0] : '5';
+    } catch (e) { return '5'; }
+}
+
+// Turn a bare character into a game card (pinyin + short def), reusing a real
+// deck card when one exists so drilling still feeds the SRS.
+function buildDrillCard(char) {
+    const deck = getActiveDeck();
+    const existing = deck && deck.cards.find(c => c.char === char);
+    if (existing) return { char, pinyin: existing.pinyin, def: existing.def, _card: existing };
+    return {
+        char,
+        pinyin: window.pinyinPro?.pinyin(char, { toneType: 'symbol' }) || '',
+        def: (dictionary?.[char] || '').split(';')[0].split('/')[0].replace(/\[.*?\]|\(.*?\)/g, '').trim(),
+        _card: null
+    };
+}
+
+function showTroubleSpots() {
+    const body = gamesModalEl.querySelector('#game-body');
+    gamesModalEl.querySelector('#game-title').textContent = 'Trouble spots';
+    const misses = Object.entries(confusionData.miss || {}).sort((a, b) => b[1] - a[1]);
+    const pairs = Object.entries(confusionData.pairs || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+    if (!misses.length) {
+        body.innerHTML = `<p class="info" style="text-align:center; padding:1.5rem 0.5rem;">No trouble spots yet — play a few rounds and the characters you miss will collect here for targeted drilling.</p>
+            <div style="text-align:center;"><button class="modal-btn" id="trouble-back">Back to games</button></div>`;
+        body.querySelector('#trouble-back').addEventListener('click', () => openGamesHub());
+        return;
+    }
+
+    const items = misses.slice(0, 12).map(([char, n]) => {
+        const card = buildDrillCard(char);
+        const py = escapeHtml(card.pinyin || '');
+        const def = escapeHtml(truncateDefinition(card.def || '', 5));
+        return `<li class="trouble-item">
+            <span class="trouble-char tone-${charToneNum(char)}">${escapeHtml(char)}</span>
+            <span class="trouble-info"><span class="trouble-py">${py}</span><span class="trouble-def">${def}</span></span>
+            <span class="trouble-count" title="missed ${n} time${n === 1 ? '' : 's'}">×${n}</span>
+        </li>`;
+    }).join('');
+
+    const pairsHtml = pairs.length ? `
+        <div class="trouble-subhead">Easily confused</div>
+        <div class="trouble-pairs">${pairs.map(([key, n]) => {
+            const [a, b] = key.split('→');
+            return `<span class="trouble-pair"><b class="tone-${charToneNum(a)}">${escapeHtml(a)}</b> vs <b class="tone-${charToneNum(b)}">${escapeHtml(b)}</b> <em>×${n}</em></span>`;
+        }).join('')}</div>` : '';
+
+    body.innerHTML = `
+        <p class="game-hub-sub">The characters you miss most, straight from your game history.</p>
+        <ul class="trouble-list">${items}</ul>
+        ${pairsHtml}
+        <div class="trouble-actions">
+            <button class="modal-btn primary" id="trouble-drill">🎯 Drill these</button>
+            <button class="modal-btn" id="trouble-hub">Back to games</button>
+            <button class="modal-btn danger-ghost" id="trouble-clear">Clear</button>
+        </div>`;
+
+    body.querySelector('#trouble-drill').addEventListener('click', startTroubleDrill);
+    body.querySelector('#trouble-hub').addEventListener('click', () => openGamesHub());
+    body.querySelector('#trouble-clear').addEventListener('click', () => {
+        if (!confirm('Clear your logged trouble spots? This cannot be undone.')) return;
+        confusionData = { miss: {}, pairs: {} };
+        saveConfusionData();
+        openGamesHub();
+    });
+}
+
+// Build a drill pool from the most-missed characters, padded with other known
+// cards so the picked games always have enough distractors, then open the hub.
+function startTroubleDrill() {
+    const missChars = Object.entries(confusionData.miss || {})
+        .sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => e[0]);
+    const drill = missChars.map(buildDrillCard);
+    const have = new Set(missChars);
+    for (const c of getGamesSourceCards()) {
+        if (drill.length >= Math.max(8, missChars.length + 4)) break;
+        if (c.char && !have.has(c.char)) { have.add(c.char); drill.push(c); }
+    }
+    openGamesHub(drill);
 }
 
 // ===================================
