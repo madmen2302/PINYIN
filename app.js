@@ -1977,6 +1977,7 @@ window.showStrokes = async (char) => {
             <div class="hanzi-modal-equation loading">Fetching equation...</div>
             <div class="hanzi-modal-mnemonic loading">Fetching mnemonic...</div>
         </div>
+        <div id="hanzi-phonetic" class="hanzi-phonetic"></div>
         <div id="hanzi-modal-controls">
             ${prevBtnHtml} ${nextBtnHtml}
         </div>
@@ -2064,6 +2065,55 @@ window.showStrokes = async (char) => {
     }
     
     createWriter();
+    loadPhoneticSeries(char);
+}
+
+// Phonetic-series explorer: fetch the family of characters that share this
+// character's phonetic component, enrich each with pinyin + short meaning, and
+// highlight the ones the learner already knows. Learning one member of a
+// phonetic family gives a foothold on the rest.
+async function loadPhoneticSeries(char) {
+    const el = document.getElementById('hanzi-phonetic');
+    if (!el) return;
+    el.innerHTML = '';
+    let data;
+    try {
+        const resp = await fetch(`${backendUrl}/phonetic-series/${encodeURIComponent(char)}`);
+        data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'lookup failed');
+    } catch (_) { return; } // silent — this is a bonus panel
+    if (!data || !data.phonetic || !Array.isArray(data.family) || data.family.length < 2) return;
+
+    const known = buildKnownCharSet();
+    const py = c => window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(c, { toneType: 'symbol' }) : '';
+    const toneOf = c => (typeof readerToneNumber === 'function') ? readerToneNumber(c) : '5';
+    const shortDef = c => ((dictionary && dictionary[c]) || '').split(';')[0].split('/')[0].replace(/\[.*?\]|\(.*?\)/g, '').trim();
+
+    // Put the phonetic root first, then the queried char, then the rest.
+    const ordered = data.family.slice().sort((a, b) => {
+        const rank = c => c === data.phonetic ? 0 : (c === char ? 1 : 2);
+        return rank(a) - rank(b);
+    });
+
+    const chips = ordered.map(c => {
+        const isKnown = known.has(c);
+        const isSelf = c === char;
+        const isRoot = c === data.phonetic;
+        const cls = `phonetic-chip tone-${toneOf(c)}${isKnown ? ' known' : ''}${isSelf ? ' self' : ''}${isRoot ? ' root' : ''}`;
+        const def = escapeHtml(truncateDefinition(shortDef(c), 3));
+        return `<button class="${cls}" onclick="window.showStrokes('${c}')" title="${escapeHtml(py(c))}${def ? ' · ' + def : ''}">
+            <span class="phonetic-hanzi">${escapeHtml(c)}</span>
+            <span class="phonetic-py">${escapeHtml(py(c))}</span>
+        </button>`;
+    }).join('');
+
+    const knownCount = ordered.filter(c => known.has(c)).length;
+    el.innerHTML = `
+        <div class="phonetic-head">
+            <span class="phonetic-title">Phonetic family: <b class="tone-${toneOf(data.phonetic)}">${escapeHtml(data.phonetic)}</b></span>
+            <span class="phonetic-count">${knownCount}/${ordered.length} known</span>
+        </div>
+        <div class="phonetic-grid">${chips}</div>`;
 }
 
 window.showText = (title, text) => {

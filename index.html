@@ -493,6 +493,27 @@
         .hanzi-modal-actions { margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
         .hanzi-modal-actions .panel-btn { margin: 0 auto; max-width: 200px; }
 
+        /* --- Phonetic-series explorer (in the character detail modal) --- */
+        .hanzi-phonetic:empty { display: none; }
+        .hanzi-phonetic { margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem; text-align: left; }
+        .phonetic-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.6rem; gap: 0.5rem; }
+        .phonetic-title { font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); }
+        .phonetic-title b { font-size: 1.15rem; }
+        .phonetic-count { font-size: 0.78rem; color: var(--text-secondary); background: var(--accent-soft); padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap; }
+        .phonetic-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .phonetic-chip {
+            display: flex; flex-direction: column; align-items: center; gap: 0.1rem; cursor: pointer;
+            min-width: 3rem; padding: 0.4rem 0.55rem; border-radius: var(--radius-sm);
+            border: 1px solid var(--border-hairline); background: var(--card-bg); color: inherit;
+            transition: transform 0.15s var(--ease-spring), border-color 0.15s, box-shadow 0.15s;
+        }
+        .phonetic-chip:hover { transform: translateY(-2px); border-color: var(--accent-color); box-shadow: var(--shadow-sm); }
+        .phonetic-hanzi { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+        .phonetic-py { font-size: 0.68rem; color: var(--text-secondary); }
+        .phonetic-chip.known { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent-color) 40%, transparent); }
+        .phonetic-chip.self { outline: 2px solid var(--accent-color); outline-offset: 1px; }
+        .phonetic-chip.root { box-shadow: inset 0 -3px 0 var(--accent-2); }
+
         /* Loading placeholder styles */
         .loading {
             color: var(--text-subtle);

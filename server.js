@@ -16,6 +16,9 @@ const crypto = require('crypto');
 const CACHE_LIMIT = 2000;
 const characterCache = new Map();
 let decompositionData = {};
+// Reverse index: component character -> [characters that contain it]. Built once
+// from the decomposition data, this powers the phonetic-series explorer.
+let componentIndex = {};
 
 // Ideographic Description Characters (⿰⿱⿲… U+2FF0–U+2FFF) used to describe how
 // components combine in an IDS string. We strip these to recover the components.
@@ -48,10 +51,21 @@ async function loadDecompositionData() {
             map[char] = { components, radical: entry.radical || null };
         }
         decompositionData = map;
-        console.log(`✅ Loaded decomposition data for ${Object.keys(map).length} characters.`);
+        // Build the reverse component index: for every character, register it
+        // under each of its components, so we can later find the whole family of
+        // characters that share a phonetic component (青 -> 请/情/晴/清…).
+        const idx = {};
+        for (const [char, info] of Object.entries(map)) {
+            for (const comp of info.components) {
+                (idx[comp] = idx[comp] || []).push(char);
+            }
+        }
+        componentIndex = idx;
+        console.log(`✅ Loaded decomposition data for ${Object.keys(map).length} characters (${Object.keys(idx).length} components indexed).`);
     } catch (error) {
         console.warn('⚠️ Could not load decomposition data:', error.message);
         decompositionData = {};
+        componentIndex = {};
     }
 }
 
@@ -360,6 +374,40 @@ app.get('/character-data/:char', async (req, res) => {
     characterCache.set(decodedChar, payload);
 
     res.json(payload);
+});
+
+// Phonetic-series explorer: given a character, find the phonetic component it
+// shares with a family of other characters (e.g. 请 -> phonetic 青 -> 情/晴/清/静…).
+// Pure decomposition lookup, no AI — the client enriches each character with
+// pinyin/definition and highlights the ones the learner already knows.
+app.get('/phonetic-series/:char', (req, res) => {
+    const char = decodeURIComponent(req.params.char || '');
+    if (!char) return res.status(400).json({ error: 'Missing character parameter' });
+
+    const entry = decompositionData[char];
+    const radical = (entry && entry.radical) || null;
+    const comps = (entry && Array.isArray(entry.components)) ? entry.components : [];
+
+    // Candidate phonetic roots: the character itself (it may BE a phonetic, like
+    // 青), then its non-radical components. Pick the one with the largest family.
+    const candidates = [char, ...comps.filter(c => c !== radical)];
+    let phonetic = null;
+    let bestFamily = [];
+    for (const cand of candidates) {
+        const fam = componentIndex[cand] || [];
+        if (fam.length > bestFamily.length) { phonetic = cand; bestFamily = fam; }
+    }
+
+    if (!phonetic || bestFamily.length < 2) {
+        return res.json({ phonetic: null, radical, family: [] });
+    }
+
+    const set = new Set(bestFamily);
+    set.add(char);                                   // keep the queried character
+    if (decompositionData[phonetic] || CJK_CHAR.test(phonetic)) set.add(phonetic); // the root itself
+    const family = Array.from(set).slice(0, 40);
+
+    res.json({ phonetic, radical, family });
 });
 
 app.post('/radical-info', async (req, res) => {
