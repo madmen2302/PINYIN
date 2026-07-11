@@ -242,7 +242,7 @@
         .history-item .preview { font-size: 0.85em; color: var(--text-secondary); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
         .history-item-controls { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
-        .history-btn { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 10px; font-size: 0.75em; cursor: pointer; transition: all 0.2s; }
+        .history-btn { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px; min-height: 36px; font-size: 0.75em; cursor: pointer; transition: all 0.2s; }
         .history-btn:hover { background: var(--accent-color); color: white; border-color: transparent; }
         .delete-btn { color: var(--danger-color); border-color: var(--danger-color); background: transparent; }
         .delete-btn:hover { background: var(--danger-color); color: white; }
@@ -253,7 +253,9 @@
         #history-search-input { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid var(--border-color); background: var(--input-bg); padding: 8px 12px; font-size: 0.9rem; color: var(--text-main); }
         #history-search-input:focus { outline: none; border-color: var(--accent-color); background: var(--card-bg); }
         #history-category-filters { display: flex; gap: 0.5rem; align-items: center; }
-        .category-filter-btn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.2s; }
+        .category-filter-btn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.2s; position: relative; }
+        /* Keep the visible dot small but expand the touch target to ~40px. */
+        .category-filter-btn::after { content: ''; position: absolute; inset: -8px; }
         .category-filter-btn.active { border-color: var(--text-main); transform: scale(1.1); }
         #category-trash-btn { background: transparent; border: 2px dashed var(--border-color); border-radius: 50%; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         #category-trash-btn.drag-over { background: rgba(255, 59, 48, 0.1); border-color: var(--danger-color); }
@@ -315,6 +317,8 @@
         }
         .popover-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.75rem 1rem; align-items: center; }
         .settings-popover-row label { text-align: left !important; }
+        /* The mic (voice-input) button lives in this popover — give it a full tap target. */
+        .settings-popover-row #mic-fab { min-width: 44px; min-height: 44px; }
         .settings-popover-autosave { display: flex; align-items: center; gap: 0.6rem; }
 
         #finalOutput { text-align: left; background: transparent; padding: 0; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; margin-top: 1rem; }
@@ -529,7 +533,7 @@
             transform: rotate(180deg);
         }
         /* Overlays & Modals */
-        #panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 30; }
+        #panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 90; }
         body.mobile-layout.left-panel-open #panel-overlay, body.mobile-layout.right-panel-open #panel-overlay { opacity: 1; pointer-events: auto; }
         .main-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 5000; }
         .main-modal.active { display: flex; }

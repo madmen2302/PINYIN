@@ -34,6 +34,8 @@ const controlsToggleBtn = document.createElement('button');
 controlsToggleBtn.id = 'controls-toggle-btn';
 controlsToggleBtn.className = 'header-icon-btn';
 controlsToggleBtn.innerHTML = textInputIcon; // Give the button an icon
+controlsToggleBtn.title = 'Show / hide the text input';
+controlsToggleBtn.setAttribute('aria-label', 'Show or hide the text input');
 const darkModeToggle = document.getElementById('dark-mode-toggle');
 const bars = document.querySelectorAll('.bar');
 const textInput = document.getElementById('text-input');
@@ -418,6 +420,29 @@ function escapeHtml(value) {
 // ======== INITIALIZATION ========
 loadDictionaryAndLibs();
 
+// dictionary.json stores one context-free gloss per character, and for several
+// common polyphonic characters that gloss is the meaning of the LESS common
+// reading (a CEDICT first-sense artifact — e.g. 喝 stored as "to shout"/hè
+// instead of "to drink"/hē). We can't do reading-aware selection without richer
+// data, so lead each of these with the dominant reading's meaning (most-common
+// first, since compact views show only the first sense).
+const DICTIONARY_CORRECTIONS = {
+    '喝': 'to drink; to shout',                 // hē ≫ hè
+    '和': 'and; with; harmonious; peace',       // hé
+    '长': 'long; to grow; chief; elder',        // cháng / zhǎng
+    '重': 'heavy; serious; to repeat; again',   // zhòng / chóng
+    '乐': 'happy; joyful; music',               // lè / yuè
+    '还': 'still; yet; also; to return',        // hái / huán
+    '得': 'to obtain; to get; (structural particle)', // dé / de
+    '教': 'to teach; teaching; religion',       // jiāo / jiào
+};
+function applyDictionaryCorrections(dict) {
+    if (!dict) return;
+    for (const [ch, gloss] of Object.entries(DICTIONARY_CORRECTIONS)) {
+        if (ch in dict) dict[ch] = gloss;
+    }
+}
+
 async function loadDictionaryAndLibs() {
     try {
         // === OPTIMIZATION: Fetch all initial data in parallel ===
@@ -428,6 +453,7 @@ async function loadDictionaryAndLibs() {
 
         if (dictResult.status === 'fulfilled' && dictResult.value.ok) {
             dictionary = await dictResult.value.json();
+            applyDictionaryCorrections(dictionary);
             console.log('✅ Dictionary loaded.');
         } else {
             console.error('❌ Failed to load dictionary.json.');
@@ -537,10 +563,24 @@ controlsToggleBtn.addEventListener('click', () => {
 });
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        toggleHistoryPanel(false);
-        toggleRightPanel(false);
+    if (e.key !== 'Escape') return;
+    // Close the topmost open transient surface (one per press), most-nested first,
+    // and only fall back to the side panels if nothing overlay-like is open.
+    const aaPop = document.getElementById('reader-aa-popover');
+    if (ttsControls && ttsControls.style.display === 'grid') { ttsControls.style.display = 'none'; return; }
+    if (aaPop && aaPop.style.display === 'grid') { aaPop.style.display = 'none'; return; }
+    if (modal && modal.classList.contains('active')) { closeHanziModal(); return; }
+    if (charInfoModal && charInfoModal.classList.contains('active')) { charInfoModal.classList.remove('active'); return; }
+    if (gamesModalEl && gamesModalEl.classList.contains('active')) { gameTopClose(); return; }
+    if (karaokeOverlayEl && karaokeOverlayEl.classList.contains('active')) { closeKaraoke(); return; }
+    if (subsOverlayEl && subsOverlayEl.classList.contains('active')) { closeSubs(); return; }
+    const readerOverlay = document.getElementById('reader-overlay');
+    if (readerOverlay && readerOverlay.classList.contains('active')) {
+        const rc = document.getElementById('reader-close');
+        if (rc) { rc.click(); return; } // reuse the reader's own teardown
     }
+    toggleHistoryPanel(false);
+    toggleRightPanel(false);
 });
 
 function stopAllAudio() {
@@ -2261,6 +2301,10 @@ function updateGlobalStatsDisplay() {
 
 function closeHanziModal() {
     loopingChar = null; // Stop any animation loops
+    // Closing the modal also cancels any in-flight video-subtitle poll (the
+    // extract prompt lives in this modal) so it can't ambush the user by
+    // force-opening the player ~30 min later after they've moved on.
+    videoExtractToken++;
     modal.classList.remove('active');
     if (hanziWriter && typeof hanziWriter.cleanup === 'function') {
         hanziWriter.cleanup();
@@ -6882,10 +6926,15 @@ function openVideoLinkPrompt() {
     if (go) go.addEventListener('click', () => runVideoExtract((input && input.value || '').trim()));
 }
 
+// Bumped whenever a new extraction starts or the prompt modal closes; a running
+// poll aborts as soon as its token is superseded (no stacked polls, no ambush).
+let videoExtractToken = 0;
+
 async function runVideoExtract(url) {
     const statusEl = document.getElementById('video-extract-status');
     const setStatus = (html) => { if (statusEl) statusEl.innerHTML = html; };
     if (!/^https?:\/\/\S+$/i.test(url)) { setStatus('<span class="error">Enter a valid video URL (starting with http).</span>'); return; }
+    const myToken = ++videoExtractToken; // supersede any prior in-flight poll
     const go = document.getElementById('video-extract-go');
     if (go) go.disabled = true;
     setStatus('<span class="loading">Contacting the server…</span>');
@@ -6901,6 +6950,7 @@ async function runVideoExtract(url) {
         let tries = 0;
         while (tries++ < 600) { // poll up to ~30 min at 3s
             await new Promise(r => setTimeout(r, 3000));
+            if (myToken !== videoExtractToken) return; // cancelled or superseded
             let d;
             try {
                 const st = await fetch(`${backendUrl}/video-subs-status?jobId=${encodeURIComponent(jobId)}`);
@@ -6932,9 +6982,11 @@ async function runVideoExtract(url) {
 function parseSrt(text) {
     const cues = [];
     for (const block of text.replace(/\r/g, '').split(/\n\n+/)) {
-        const m = block.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+        // Hours are optional so this also parses WebVTT cues written as MM:SS.mmm
+        // (not just SRT's HH:MM:SS,mmm) — the .vtt file input relies on this.
+        const m = block.match(/(?:(\d+):)?(\d+):(\d+)[,.](\d+)\s*-->\s*(?:(\d+):)?(\d+):(\d+)[,.](\d+)/);
         if (!m) continue;
-        const start = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
+        const start = (+m[1] || 0) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
         const lines = block.split('\n');
         const idx = lines.findIndex(l => l.includes('-->'));
         const txt = lines.slice(idx + 1).join(' ').replace(/<[^>]+>/g, '').replace(/\{[^}]*\}/g, '').trim();
