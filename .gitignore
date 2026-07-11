@@ -2,6 +2,10 @@
 .env
 _OLD_MESS/
 
+# Internal planning docs — must NOT ship to the (fully static-served) app root
+docs/
+.claude/
+
 # System Junk
 .DS_Store
 *.log

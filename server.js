@@ -100,6 +100,16 @@ app.use((req, res, next) => {
 // - custom-db.json is mutable user data -> always revalidate.
 // - index.html / app.js deploy frequently (cron pull) -> always revalidate so
 //   updates appear immediately.
+// The app root is static-served, so guard the files the client never needs but
+// that would leak if fetched: planning docs (*.md, docs/), source (server.js),
+// worker scripts, deps, dotfiles (.git/.env/.claude), and lockfiles. The client
+// only needs index.html, app.js, the *.json data files, favicon and tts-cache.
+const BLOCKED_STATIC = /(?:^|\/)(?:\.[^/]+|node_modules|docs|scripts)(?:\/|$)|\.(?:md|env)$|(?:^|\/)(?:server\.js|package\.json|package-lock\.json)$/i;
+app.use((req, res, next) => {
+    if (BLOCKED_STATIC.test(req.path)) return res.status(404).send('Not found');
+    next();
+});
+
 app.use(express.static(__dirname, {
     etag: true,
     lastModified: true,
