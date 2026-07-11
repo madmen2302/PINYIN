@@ -706,6 +706,38 @@ const NETEASE_HEADERS = { 'Referer': 'https://music.163.com', 'User-Agent': 'Moz
 // /song-lyric knows which provider to hit.
 const QQ_HEADERS = { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' };
 
+// --- LRCLIB (lrclib.net) — PRIMARY source ---
+// Free, no auth, no self-hosting; returns time-synced LRC inline as JSON. Its
+// Chinese/Mando-pop coverage and matching are far better than NetEase's ranking
+// (which returns unrelated hits for common titles like 童话), so it runs first
+// and NetEase/QQ are only fallbacks. Etiquette: send an identifying User-Agent.
+// Ids are prefixed "lrclib:" so /song-lyric fetches from GET /api/get/{id}.
+const LRCLIB_HEADERS = { 'User-Agent': 'PinyinReader (https://github.com/madmen2302/PINYIN)' };
+
+async function lrclibSearch(q) {
+    const resp = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, { headers: LRCLIB_HEADERS });
+    if (!resp.ok) return [];
+    const list = await resp.json();
+    if (!Array.isArray(list)) return [];
+    // Karaoke needs timed lyrics — keep only entries that actually have synced LRC.
+    return list
+        .filter(s => s && s.syncedLyrics && s.trackName)
+        .map(s => ({
+            id: `lrclib:${s.id}`,
+            name: s.trackName,
+            artist: s.artistName || '',
+            album: s.albumName || ''
+        }));
+}
+
+async function lrclibLyric(id) {
+    const resp = await fetch(`https://lrclib.net/api/get/${encodeURIComponent(id)}`, { headers: LRCLIB_HEADERS });
+    if (!resp.ok) return { lrc: '', tlyric: '' };
+    const data = await resp.json();
+    // syncedLyrics is the LRC ([mm:ss.xx] lines); no separate translation track.
+    return { lrc: data?.syncedLyrics || '', tlyric: '' };
+}
+
 async function qqMusicSearch(q) {
     const resp = await fetch('https://u.y.qq.com/cgi-bin/musicu.fcg', {
         method: 'POST',
@@ -742,7 +774,10 @@ app.get('/song-search', async (req, res) => {
     const q = (req.query.q || '').trim();
     if (!q) return res.status(400).json({ error: 'Missing query.' });
     let songs = [];
-    try {
+    // 1) LRCLIB first — best Chinese hit rate, synced lyrics guaranteed.
+    try { songs = await lrclibSearch(q); } catch (error) { console.error('LRCLIB search error:', error.message); }
+    // 2) NetEase fallback (unreliable ranking, but wider catalog for some tracks).
+    if (songs.length === 0) try {
         const resp = await fetch('https://music.163.com/api/search/get', {
             method: 'POST',
             headers: { ...NETEASE_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -767,6 +802,7 @@ app.get('/song-search', async (req, res) => {
     } catch (error) {
         console.error('NetEase song search error:', error.message);
     }
+    // 3) QQ Music last resort.
     if (songs.length === 0) {
         try { songs = await qqMusicSearch(q); } catch (error) { console.error('QQ Music fallback search error:', error.message); }
     }
@@ -777,6 +813,11 @@ app.get('/song-lyric', async (req, res) => {
     const id = (req.query.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Missing id.' });
     try {
+        if (id.startsWith('lrclib:')) {
+            const { lrc, tlyric } = await lrclibLyric(id.slice(7));
+            const stripped = lrc.replace(/\[[0-9:.]+\]/g, '').replace(/\s/g, '');
+            return res.json({ lrc, tlyric, available: stripped.length > 20 });
+        }
         if (id.startsWith('qq:')) {
             const { lrc, tlyric } = await qqMusicLyric(id.slice(3));
             const stripped = lrc.replace(/\[[0-9:.]+\]/g, '').replace(/\s/g, '');
