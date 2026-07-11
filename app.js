@@ -758,22 +758,101 @@ flashcardTestModeCheckboxes.forEach(cb => {
 });
 
 backToDecksBtn.addEventListener('click', showDeckManager);
-flashcardEl.addEventListener('click', (event) => {
-    if (event.target.closest('.flashcard-writer')) return;
+// Reusable flip (respects the say-first gate) + review-mode helpers shared by the
+// click, keyboard and swipe inputs (M3 part C).
+let fcSuppressClick = false;
+function fcFlip() {
     if (sayFirstFlipLocked()) { pulseSayFirstBar(); return; }
     flashcardEl.classList.toggle('flipped');
+}
+function fcReviewActive() {
+    return flashcardModal && flashcardModal.style.display !== 'none'
+        && flashcardMain && flashcardMain.classList.contains('view-mode')
+        && !!currentTestSession;
+}
+function fcIsFlipped() { return flashcardEl && flashcardEl.classList.contains('flipped'); }
+function fcSummaryOpen() { const s = document.getElementById('fc-summary'); return s && getComputedStyle(s).display !== 'none'; }
+function fcConfirmExit() {
+    if (currentTestSession && currentTestSession.mode === 'test' && currentTestSession.answered < currentTestSession.total
+        && !confirm('End this session? Progress on graded cards is already saved.')) return;
+    showDeckManager();
+}
+flashcardEl.addEventListener('click', (event) => {
+    if (event.target.closest('.flashcard-writer, .fc-audio-btn')) return;
+    if (fcSuppressClick) { fcSuppressClick = false; return; } // a swipe just happened
+    fcFlip();
 });
 flashcardNextBtn.addEventListener('click', () => showFlashcard(currentFlashcardIndex + 1));
-flashcardFlipBtn.addEventListener('click', () => {
-    if (sayFirstFlipLocked()) { pulseSayFirstBar(); return; }
-    flashcardEl.classList.toggle('flipped');
-});
+flashcardFlipBtn.addEventListener('click', fcFlip);
 flashcardAiBtn.addEventListener('click', () => showFlashcardAiInsight(false));
 flashcardPrevBtn.addEventListener('click', () => showFlashcard(currentFlashcardIndex - 1));
 testRightBtn.addEventListener('click', () => recordTestAnswer(true));
 testWrongBtn.addEventListener('click', () => recordTestAnswer(false));
 testSkipBtn.addEventListener('click', skipCurrentCard);
 downloadCsvBtn.addEventListener('click', downloadDeckAsCsv);
+
+// === Review keyboard shortcuts (desktop) ===
+document.addEventListener('keydown', (e) => {
+    if (!fcReviewActive() || fcSummaryOpen()) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const mode = currentTestSession.mode;
+    const k = e.key;
+    if (k === ' ' || k === 'Spacebar' || k === 'Enter') { e.preventDefault(); fcFlip(); return; }
+    if (k === 'Escape') { e.preventDefault(); fcConfirmExit(); return; }
+    if (mode === 'study') {
+        if (k === 'ArrowLeft') { e.preventDefault(); showFlashcard(currentFlashcardIndex - 1); }
+        else if (k === 'ArrowRight') { e.preventDefault(); showFlashcard(currentFlashcardIndex + 1); }
+        return;
+    }
+    // test mode — grades require a revealed card; an arrow on an unflipped card flips it first
+    if (k === 'ArrowLeft' || k === '1') { e.preventDefault(); if (fcIsFlipped()) recordTestAnswer(false); else fcFlip(); }
+    else if (k === 'ArrowRight' || k === '2') { e.preventDefault(); if (fcIsFlipped()) recordTestAnswer(true); else fcFlip(); }
+    else if (k === 's' || k === 'S') { e.preventDefault(); skipCurrentCard(); }
+});
+
+// === Swipe-to-grade (mobile) === drag a revealed card right = Got it, left = Again.
+(function setupFlashcardSwipe() {
+    if (!flashcardEl) return;
+    let dragging = false, startX = 0, startY = 0, dx = 0, moved = false, pid = null;
+    function ensureBadge() {
+        let b = document.getElementById('fc-swipe-badge');
+        if (!b) { b = document.createElement('div'); b.id = 'fc-swipe-badge'; flashcardEl.appendChild(b); }
+        return b;
+    }
+    flashcardEl.addEventListener('pointerdown', (e) => {
+        if (!fcReviewActive() || currentTestSession.mode !== 'test' || !fcIsFlipped()) return;
+        if (e.target.closest('.flashcard-writer, .fc-audio-btn, button')) return;
+        dragging = true; moved = false; startX = e.clientX; startY = e.clientY; dx = 0; pid = e.pointerId;
+        try { flashcardEl.setPointerCapture(pid); } catch (_) { /* ignore */ }
+        flashcardEl.style.transition = 'none';
+    });
+    flashcardEl.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        dx = e.clientX - startX;
+        if (Math.abs(dx) > 8 || Math.abs(e.clientY - startY) > 8) moved = true;
+        flashcardEl.style.transform = `translateX(${dx}px) rotate(${dx / 40}deg)`;
+        const b = ensureBadge();
+        if (dx > 40) { b.textContent = 'Got it ✓'; b.className = 'right'; b.style.opacity = '1'; }
+        else if (dx < -40) { b.textContent = 'Again ↺'; b.className = 'left'; b.style.opacity = '1'; }
+        else { b.style.opacity = '0'; }
+    });
+    function endDrag() {
+        if (!dragging) return;
+        dragging = false;
+        try { flashcardEl.releasePointerCapture(pid); } catch (_) { /* ignore */ }
+        const b = document.getElementById('fc-swipe-badge'); if (b) b.style.opacity = '0';
+        flashcardEl.style.transition = '';
+        flashcardEl.style.transform = '';
+        if (moved) fcSuppressClick = true; // don't let the trailing click flip the card
+        if (Math.abs(dx) >= 80 && !fcAnswerLocked) {
+            recordTestAnswer(dx > 0); // its fc-out animation continues the motion
+        }
+        dx = 0;
+    }
+    flashcardEl.addEventListener('pointerup', endDrag);
+    flashcardEl.addEventListener('pointercancel', endDrag);
+})();
 
 // === Say-it-first gate ===
 // In test mode, optionally require the learner to say the card aloud before the
@@ -3498,6 +3577,17 @@ async function renderCardFace(target, types, card, faceKey, token) {
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'flashcard-content-wrapper'; // Use a class for styling
     target.appendChild(contentWrapper);
+
+    // Audio button (M3C): speak the character aloud without flipping the card.
+    if (card && card.char) {
+        const fcAudio = document.createElement('button');
+        fcAudio.type = 'button';
+        fcAudio.className = 'fc-audio-btn';
+        fcAudio.setAttribute('aria-label', 'Play pronunciation');
+        fcAudio.textContent = '🔊';
+        fcAudio.addEventListener('click', (e) => { e.stopPropagation(); speakSmart(card.char); });
+        target.appendChild(fcAudio);
+    }
 
     // 2. Render Content
     for (const type of types) {

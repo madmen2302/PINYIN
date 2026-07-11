@@ -585,6 +585,11 @@
         .fc-summary-tile span:last-child { font-size: 0.8rem; color: var(--text-secondary); }
         .fc-summary-streak { font-weight: 700; color: var(--danger-color); }
         .fc-summary-card .modal-btn { min-height: 48px; }
+        /* ---- Review flow (M3 · part C: audio button, swipe badge) ---- */
+        .fc-audio-btn { position: absolute; top: 0.6rem; right: 0.6rem; width: 44px; height: 44px; border: none; border-radius: 50%; background: var(--accent-grad); color: #fff; font-size: 1.15rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); z-index: 2; }
+        #fc-swipe-badge { position: absolute; top: 1rem; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.85rem; border-radius: 999px; font-weight: 700; font-size: 0.9rem; color: #fff; opacity: 0; transition: opacity 0.15s ease; pointer-events: none; z-index: 3; }
+        #fc-swipe-badge.right { background: var(--accent-color); }
+        #fc-swipe-badge.left { background: var(--danger-color); }
 
         /* ======== UTILITY & TOP RIGHT CONTROLS ======== */
         .top-right-controls { position: absolute; top: 1rem; right: 1.5rem; display: flex; gap: 0.75rem; align-items: center; z-index: 10; }
