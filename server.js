@@ -140,6 +140,8 @@ app.use('/realtime-session', aiLimiter);
 app.use('/tutor-debrief', aiLimiter);
 app.use('/song-search', utilityLimiter);
 app.use('/song-lyric', utilityLimiter);
+app.use('/resolve-track', utilityLimiter);
+app.use('/summarize', aiLimiter);
 app.use('/video-subs', utilityLimiter);
 app.use('/identify-song', aiLimiter);
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
@@ -345,6 +347,34 @@ app.post('/register', async (req, res) => {
     } catch (error) {
         console.error('Register error:', error.message);
         res.status(502).json({ error: 'Register lookup failed.' });
+    }
+});
+
+// Video AI summary: a short Chinese summary of a transcript (the client then
+// runs its existing pinyin generator + English translator on this same
+// summary so all three blocks — Chinese/English/pinyin — stay consistent).
+app.post('/summarize', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    let { text } = req.body || {};
+    if (!text || typeof text !== 'string') return res.status(400).json({ error: 'Missing text.' });
+    text = text.trim().slice(0, 6000); // cap input length to bound cost
+    if (!text) return res.status(400).json({ error: 'Empty text.' });
+    try {
+        const prompt = `Summarize the following Chinese video transcript in simple, natural Mandarin — 2-4 short sentences, ` +
+            `capturing only the main point(s). Return STRICT JSON {"summary":"<the Chinese summary>"}. Transcript: "${text}"`;
+        const c = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            temperature: 0.4,
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const data = JSON.parse(c.choices[0]?.message?.content || '{}');
+        const summary = (data.summary || '').trim();
+        if (!summary) throw new Error('Empty summary from model.');
+        res.json({ summary });
+    } catch (error) {
+        console.error('Summarize error:', error.message);
+        res.status(502).json({ error: 'Could not summarize.' });
     }
 });
 
@@ -667,9 +697,51 @@ app.post('/ocr', upload.single('image'), async (req, res) => {
 // === Karaoke: proxy NetEase Cloud Music (the VPS can reach it; the client can't) ===
 const NETEASE_HEADERS = { 'Referer': 'https://music.163.com', 'User-Agent': 'Mozilla/5.0' };
 
+// --- QQ Music fallback (used only when NetEase search comes back empty) ---
+// NetEase search is unreliable for some songs (unlicensed, regional, or just
+// missing from its catalog). QQ Music's web search + lyric endpoints are
+// public, unauthenticated, and return plain base64 LRC (no per-provider
+// crypto to reverse, unlike Kugou's KRC format — see LyricsKit notes below),
+// which makes this a cheap second source. Fallback ids are prefixed "qq:" so
+// /song-lyric knows which provider to hit.
+const QQ_HEADERS = { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0' };
+
+async function qqMusicSearch(q) {
+    const resp = await fetch('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+        method: 'POST',
+        headers: { ...QQ_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            req: {
+                method: 'DoSearchForQQMusicDesktop',
+                module: 'music.search.SearchCgiService',
+                param: { num_per_page: 20, page_num: 1, query: q, search_type: 0, grp: 1 }
+            }
+        })
+    });
+    const data = await resp.json();
+    const list = data?.req?.data?.body?.song?.list || [];
+    return list.map(s => ({
+        id: `qq:${s.mid}`,
+        name: s.name,
+        artist: (s.singer || []).map(a => a.name).join(', '),
+        album: s.album?.name || ''
+    })).filter(s => s.id !== 'qq:' && s.name);
+}
+
+async function qqMusicLyric(mid) {
+    const resp = await fetch(`https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${encodeURIComponent(mid)}&g_tk=5381&format=json`, {
+        headers: { ...QQ_HEADERS, 'Referer': `https://y.qq.com/n/yqq/song/${encodeURIComponent(mid)}.html` }
+    });
+    const data = await resp.json();
+    const lrc = data?.lyric ? Buffer.from(data.lyric, 'base64').toString('utf8') : '';
+    const tlyric = data?.trans ? Buffer.from(data.trans, 'base64').toString('utf8') : '';
+    return { lrc, tlyric };
+}
+
 app.get('/song-search', async (req, res) => {
     const q = (req.query.q || '').trim();
     if (!q) return res.status(400).json({ error: 'Missing query.' });
+    let songs = [];
     try {
         const resp = await fetch('https://music.163.com/api/search/get', {
             method: 'POST',
@@ -680,7 +752,7 @@ app.get('/song-search', async (req, res) => {
         const raw = await resp.text();
         let data = null;
         try { data = JSON.parse(raw); } catch (_) { /* non-JSON */ }
-        let songs = (data?.result?.songs || []).map(s => ({
+        songs = (data?.result?.songs || []).map(s => ({
             id: s.id,
             name: s.name,
             artist: (s.artists || []).map(a => a.name).join(', '),
@@ -692,17 +764,24 @@ app.get('/song-search', async (req, res) => {
         // De-dupe by name+artist.
         const seen = new Set();
         songs = songs.filter(s => { const k = s.name + '|' + s.artist; if (seen.has(k)) return false; seen.add(k); return true; });
-        res.json({ songs });
     } catch (error) {
-        console.error('Song search error:', error.message);
-        res.status(502).json({ error: 'Song search failed.' });
+        console.error('NetEase song search error:', error.message);
     }
+    if (songs.length === 0) {
+        try { songs = await qqMusicSearch(q); } catch (error) { console.error('QQ Music fallback search error:', error.message); }
+    }
+    res.json({ songs });
 });
 
 app.get('/song-lyric', async (req, res) => {
     const id = (req.query.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Missing id.' });
     try {
+        if (id.startsWith('qq:')) {
+            const { lrc, tlyric } = await qqMusicLyric(id.slice(3));
+            const stripped = lrc.replace(/\[[0-9:.]+\]/g, '').replace(/\s/g, '');
+            return res.json({ lrc, tlyric, available: stripped.length > 20 });
+        }
         const resp = await fetch(`https://music.163.com/api/song/lyric?os=pc&id=${encodeURIComponent(id)}&lv=-1&kv=-1&tv=-1`, { headers: NETEASE_HEADERS });
         const data = await resp.json();
         const lrc = data?.lrc?.lyric || '';
@@ -714,6 +793,82 @@ app.get('/song-lyric', async (req, res) => {
     } catch (error) {
         console.error('Song lyric error:', error.message);
         res.status(502).json({ error: 'Could not fetch lyrics.' });
+    }
+});
+
+// === Resolve a music-service link (Spotify/Apple Music/YouTube/etc) to a
+// "title artist" search query, so karaoke can find the right lyrics without
+// the user typing the song name. Uses each service's public oEmbed endpoint
+// (no auth / paid API needed) or an og:title scrape as a fallback — all done
+// server-side since the browser can't reach these cross-origin.
+function cleanTrackTitle(s) {
+    return (s || '')
+        .replace(/[\(\[][^)\]]*(official|video|audio|lyric|visualizer|remaster)[^)\]]*[\)\]]/gi, '')
+        .replace(/\bmv\b/gi, '')
+        .replace(/-\s*topic\s*$/i, '')
+        .replace(/\bfeat\.?.*$/i, '')
+        .replace(/\bft\.?.*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// The generic fallback branch below fetches whatever URL the user pastes —
+// block obvious loopback/private/link-local hosts so this can't be used as an
+// SSRF probe against the VPS itself or its local network.
+function isPrivateHost(host) {
+    return /^(localhost|127\.|0\.0\.0\.0|::1$|\[::1\]$|169\.254\.|10\.|192\.168\.)/i.test(host)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+}
+
+app.post('/resolve-track', async (req, res) => {
+    const url = ((req.body && req.body.url) || '').trim();
+    let host;
+    try {
+        const u = new URL(url);
+        if (!/^https?:$/.test(u.protocol)) throw new Error('bad protocol');
+        host = u.hostname.replace(/^www\./, '');
+        if (isPrivateHost(host)) throw new Error('private host');
+    } catch (_) { return res.status(400).json({ error: 'Provide a valid link.' }); }
+    try {
+        let title = '', artist = '';
+        if (/open\.spotify\.com/.test(host)) {
+            const r = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`);
+            if (!r.ok) throw new Error('lookup failed');
+            const d = await r.json();
+            title = d.title || '';
+            artist = (d.author_name && !/spotify/i.test(d.author_name)) ? d.author_name : '';
+        } else if (/(^|\.)youtube\.com$|youtu\.be$/.test(host)) {
+            const r = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+            if (!r.ok) throw new Error('lookup failed');
+            const d = await r.json();
+            // YouTube titles are often "Artist - Song"; author_name is the channel
+            // (frequently "Artist - Topic" for auto-generated music channels).
+            const m = (d.title || '').match(/^(.+?)\s*[-–]\s*(.+)$/);
+            if (m) { artist = d.author_name || m[1]; title = m[2]; } else { title = d.title || ''; artist = d.author_name || ''; }
+        } else if (/music\.apple\.com/.test(host)) {
+            const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (!r.ok) throw new Error('lookup failed');
+            const html = await r.text();
+            const og = html.match(/<meta property="og:title" content="([^"]+)"/i);
+            const raw = og ? og[1] : '';
+            // Apple Music og:title usually reads "Song by Artist".
+            const m = raw.match(/^(.+?)\s+by\s+(.+)$/i);
+            if (m) { title = m[1]; artist = m[2]; } else { title = raw; }
+        } else {
+            // Generic fallback (QQ Music and anything else with an og:title/<title>).
+            const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (!r.ok) throw new Error('lookup failed');
+            const html = await r.text();
+            const og = html.match(/<meta property="og:title" content="([^"]+)"/i) || html.match(/<title>([^<]+)<\/title>/i);
+            title = og ? og[1] : '';
+        }
+        title = cleanTrackTitle(title);
+        artist = cleanTrackTitle(artist);
+        if (!title) return res.status(422).json({ error: "Couldn't read that link — try typing the song name." });
+        res.json({ title, artist, query: [title, artist].filter(Boolean).join(' ') });
+    } catch (error) {
+        console.error('resolve-track error:', error.message);
+        res.status(502).json({ error: "Couldn't read that link — try typing the song name." });
     }
 });
 
