@@ -3597,6 +3597,14 @@ function updateFlashcardProgress(card) {
     if (!currentTestSession) return;
     const totalCards = currentTestSession.cards.length;
     flashcardCounter.textContent = `${currentFlashcardIndex + 1} / ${totalCards}`;
+    const fill = document.querySelector('.fc-progress-fill');
+    if (fill && totalCards > 0) {
+        // test mode measures graded progress; study mode measures position.
+        const pct = currentTestSession.mode === 'test'
+            ? (currentTestSession.answered / (currentTestSession.total || totalCards)) * 100
+            : ((currentFlashcardIndex + 1) / totalCards) * 100;
+        fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    }
     if (!card) {
         flashcardDueIndicator.textContent = '';
         flashcardDueIndicator.classList.remove('due-soon');
