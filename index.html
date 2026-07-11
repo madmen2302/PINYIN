@@ -445,17 +445,50 @@
         .stat-item:hover { background: var(--card-bg); border: 1px solid var(--accent-color); }
 
         /* ======== FLASHCARD SYSTEM ======== */
-        #flashcard-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 2000; }
-        #flashcard-modal.fullscreen-view { background: var(--bg-color); backdrop-filter: none; }
-        #flashcard-container { width: 92vw; max-width: 1100px; height: 85vh; max-height: 800px; background: var(--card-bg); border-radius: 24px; box-shadow: var(--shadow-md); display: flex; flex-direction: column; overflow: hidden; }
-        #flashcard-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
-        #flashcard-header h3 { margin: 0; font-size: 1.5rem; }
-        #flashcard-close-btn { background: none; border: none; font-size: 2rem; cursor: pointer; color: var(--text-main); }
+        /* Full-bleed top-level mode (matches the reader/karaoke overlays). */
+        #flashcard-modal { position: fixed; inset: 0; background: var(--bg-color); display: none; flex-direction: column; z-index: 2000; }
+        #flashcard-modal.fullscreen-view { background: var(--bg-color); }
+        #flashcard-container { width: 100%; height: 100%; background: transparent; display: flex; flex-direction: column; overflow: hidden; }
+        #flashcard-header { padding: calc(0.7rem + env(safe-area-inset-top)) 1rem 0.7rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+        #flashcard-header h3 { margin: 0; font-size: 1.25rem; font-weight: 700; }
+        #flashcard-close-btn { background: none; border: none; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--text-main); min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; }
+        #flashcard-close-btn:hover { background: var(--input-bg); }
+        /* ---- Deck Home (M2) ---- */
+        #fc-home { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+        .fc-home-scroll { overflow-y: auto; padding: 1rem; max-width: 900px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+        #fc-deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+        #fc-deck-grid.fc-empty { display: block; }
+        .fc-deck-card { position: relative; background: var(--card-bg); border: 1px solid var(--border-hairline, var(--border-color)); border-radius: var(--radius-md, 16px); box-shadow: var(--shadow-sm); padding: 1rem; display: flex; flex-direction: column; gap: 0.7rem; cursor: pointer; transition: transform 0.25s var(--ease-spring, ease), box-shadow 0.25s ease; text-align: left; }
+        .fc-deck-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .fc-deck-card.active { border-color: var(--accent-color); }
+        .fc-deck-name { font-size: 1.1rem; font-weight: 700; color: var(--text-main); padding-right: 2.2rem; word-break: break-word; }
+        .fc-deck-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+        .fc-chip { border-radius: 999px; font-size: 0.75rem; padding: 0.15rem 0.6rem; font-weight: 600; }
+        .fc-chip-due { color: var(--danger-color); background: color-mix(in srgb, var(--danger-color) 14%, transparent); }
+        .fc-chip-new { color: var(--accent-color); background: color-mix(in srgb, var(--accent-color) 14%, transparent); }
+        .fc-chip-total { color: var(--text-secondary); background: var(--input-bg); }
+        .fc-deck-bar { height: 6px; background: var(--input-bg); border-radius: 999px; overflow: hidden; }
+        .fc-deck-bar-fill { height: 100%; background: var(--accent-grad); border-radius: 999px; transition: width 0.4s ease; }
+        .fc-deck-study-btn { width: 100%; margin: 0; min-height: 44px; }
+        .fc-deck-more-btn { position: absolute; top: 0.4rem; right: 0.4rem; width: 44px; height: 44px; border: none; background: none; color: var(--text-secondary); font-size: 1.3rem; line-height: 1; cursor: pointer; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; }
+        .fc-deck-more-btn:hover { background: var(--input-bg); color: var(--text-main); }
+        .fc-new-deck-card { border: 1px dashed var(--border-hairline, var(--border-color)); border-radius: var(--radius-md, 16px); background: none; color: var(--text-secondary); font-weight: 600; font-size: 0.95rem; cursor: pointer; min-height: 120px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .fc-new-deck-card:hover { border-color: var(--accent-color); color: var(--accent-color); background: color-mix(in srgb, var(--accent-color) 6%, transparent); }
+        .fc-empty-state { text-align: center; padding: 2.5rem 1rem; }
+        .fc-empty-emoji { font-size: 3rem; }
+        .fc-empty-state h3 { margin: 0.5rem 0 0.25rem; }
+        .fc-empty-state p { color: var(--text-secondary); margin: 0 0 1rem; }
+        /* Interim: the legacy manager/details panes, shown only when a deck's ⋯ is tapped (M4 replaces this). */
+        #fc-legacy-keepalive:not([hidden]) { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 1rem; }
+        #flashcard-viewer { max-width: 600px; width: 100%; margin: 0 auto; padding: 1rem; box-sizing: border-box; }
+        /* Selection pill (VIS-06) */
+        #fc-selection-pill { position: fixed; bottom: calc(1rem + env(safe-area-inset-bottom)); right: 1rem; z-index: 1500; display: none; align-items: center; gap: 0.5rem; min-height: 44px; padding: 0 1rem; border: none; border-radius: 999px; background: var(--accent-grad); color: #fff; font-weight: 600; font-size: 0.9rem; box-shadow: var(--shadow-md); cursor: pointer; }
+        #fc-selection-pill .fc-pill-count { background: rgba(255,255,255,0.25); border-radius: 999px; padding: 0.05rem 0.5rem; font-weight: 700; }
         
-        #flashcard-main { padding: 1.5rem; flex-grow: 1; display: grid; gap: 1.5rem; grid-template-columns: 280px 1fr 300px; overflow: hidden; }
+        /* One screen at a time (Deck Home vs Review), toggled by .view-mode. */
+        #flashcard-main { padding: 0; flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
         #flashcard-main > * { min-height: 0; }
-        #flashcard-main.view-mode { grid-template-columns: 1fr; }
-        #flashcard-main.view-mode #deck-manager, #flashcard-main.view-mode #deck-details { display: none !important; }
+        #flashcard-main.view-mode #fc-home { display: none; }
         #flashcard-main.view-mode #flashcard-viewer { display: flex; }
 
         /* Deck Manager */
@@ -1136,6 +1169,11 @@
                             <span class="launcher-name">Video link</span>
                             <span class="launcher-sub">YouTube · Bilibili · XHS</span>
                         </button>
+                        <button id="flashcards-launcher-btn" class="launcher-card">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M3 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zm16.5-.5a2 2 0 0 1 1.5 1.94V17a4 4 0 0 1-4 4H8.56a2 2 0 0 1 1.94 1.5H17a6 6 0 0 0 6-6V8.44a4 4 0 0 0-3.5-1.94z"></path></svg>
+                            <span class="launcher-name">Flashcards</span>
+                            <span class="launcher-sub" id="flashcards-launcher-sub">Review your decks</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1290,6 +1328,10 @@
                 <button id="flashcard-close-btn" aria-label="Close flashcards">×</button>
             </div>
             <div id="flashcard-main">
+                <section id="fc-home" class="fc-screen">
+                  <div class="fc-home-scroll">
+                    <div id="fc-deck-grid"></div>
+                    <div id="fc-legacy-keepalive" hidden>
                 <aside id="deck-manager">
                     <h4>My Decks</h4>
                     <div id="deck-list"></div>
@@ -1351,6 +1393,9 @@
                         <button id="reset-stats-btn" class="modal-btn" disabled style="color: var(--danger-color);">Reset Progress</button>
                     </div>
                 </section>
+                    </div><!-- /fc-legacy-keepalive -->
+                  </div><!-- /fc-home-scroll -->
+                </section><!-- /fc-home -->
 
                 <section id="flashcard-viewer" style="display: none; height: 100%; flex-direction: column;">
                     <div id="flashcard-progress" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem;">

@@ -707,6 +707,8 @@ if (saveSessionToggle) {
 
 // === NEW: Flashcard Listeners ===
 flashcardBtn.addEventListener('click', showFlashcardModal);
+const flashcardsLauncherBtn = document.getElementById('flashcards-launcher-btn');
+if (flashcardsLauncherBtn) flashcardsLauncherBtn.addEventListener('click', showFlashcardModal);
 flashcardGameBtn.addEventListener('click', openGamesHub);
 selectAllCharsBtn.addEventListener('click', selectAllCharacters);
 flashcardCloseBtn.addEventListener('click', () => {
@@ -2891,7 +2893,28 @@ function updateSelectedCount() {
     const selected = document.querySelectorAll('#finalOutput .selected');
     const uniqueChars = new Set();
     selected.forEach(el => uniqueChars.add(el.dataset.char));
-    addToDeckBtn.textContent = `Add (${uniqueChars.size}) Selected`;
+    if (addToDeckBtn) addToDeckBtn.textContent = `Add (${uniqueChars.size}) Selected`;
+    updateSelectionPill(uniqueChars.size);
+}
+
+// VIS-06: a floating pill so the "add these words to a deck" action is visible
+// out in the session (not only inside the flashcard modal). Tapping it opens
+// Flashcards, where "Add (N) Selected" completes the flow.
+function updateSelectionPill(count) {
+    let pill = document.getElementById('fc-selection-pill');
+    if (!pill) {
+        pill = document.createElement('button');
+        pill.id = 'fc-selection-pill';
+        pill.type = 'button';
+        pill.addEventListener('click', () => showFlashcardModal());
+        document.body.appendChild(pill);
+    }
+    if (count > 0) {
+        pill.innerHTML = `<span class="fc-pill-count">${count}</span> selected · Add to deck`;
+        pill.style.display = 'inline-flex';
+    } else {
+        pill.style.display = 'none';
+    }
 }
 
 function toggleCardSelection(element, event) {
@@ -2923,6 +2946,7 @@ function saveFlashcards() {
     } catch (error) {
         console.warn('Unable to persist flashcards.', error);
     }
+    updateFlashcardsLauncherBadge();
 }
 
 function loadFlashcards() {
@@ -3029,6 +3053,10 @@ function showDeckManager() {
     currentTestSession = null;
     flashcardFeedback.textContent = '';
     flashcardMain?.classList.remove('view-mode');
+    // Deck Home shows the new grid; the legacy panes stay folded away until a
+    // deck's ⋯ is tapped (fcOpenDeckDetails un-hides them).
+    const fcKeepalive = document.getElementById('fc-legacy-keepalive');
+    if (fcKeepalive) fcKeepalive.hidden = true;
     deckManager.style.display = 'flex';
     if (deckDetails) deckDetails.style.display = 'flex';
     flashcardModal.classList.remove('fullscreen-view');
@@ -3081,9 +3109,88 @@ function computeDeckMetrics(deck) {
     };
 }
 
+// === Deck Home (M2): a full-screen grid of deck cards with due/new/total chips,
+// a progress bar, and a smart "Study" CTA — the flashcards landing screen. ===
+function renderFcDeckGrid() {
+    const grid = document.getElementById('fc-deck-grid');
+    if (!grid) return;
+    const decks = flashcardStore.decks;
+    if (decks.length === 0) {
+        grid.classList.add('fc-empty');
+        grid.innerHTML = `<div class="fc-empty-state">
+            <div class="fc-empty-emoji">🎴</div>
+            <h3>No decks yet</h3>
+            <p>Make a deck, then add words from any lesson, book, or video you process.</p>
+            <button class="modal-btn primary" onclick="createNewDeck()">Create your first deck</button>
+        </div>`;
+        return;
+    }
+    grid.classList.remove('fc-empty');
+    const cardsHtml = decks.map(d => {
+        const m = computeDeckMetrics(d);
+        const learned = m.active > 0 ? Math.round(100 * Math.max(0, m.active - m.newCards - m.due) / m.active) : 0;
+        const label = m.due > 0 ? `Study ${m.due} due` : (m.newCards > 0 ? `Study ${m.newCards} new` : 'Review deck');
+        const chips = [
+            m.due > 0 ? `<span class="fc-chip fc-chip-due">${m.due} due</span>` : '',
+            m.newCards > 0 ? `<span class="fc-chip fc-chip-new">${m.newCards} new</span>` : '',
+            `<span class="fc-chip fc-chip-total">${m.total} card${m.total === 1 ? '' : 's'}</span>`
+        ].join('');
+        const active = d.id === flashcardStore.activeDeckId ? ' active' : '';
+        return `<article class="fc-deck-card${active}" data-id="${escapeHtml(d.id)}">
+            <button class="fc-deck-more-btn" aria-label="Deck options" onclick="fcOpenDeckDetails('${d.id}', event)">⋯</button>
+            <div class="fc-deck-name">${escapeHtml(d.name)}</div>
+            <div class="fc-deck-chips">${chips}</div>
+            <div class="fc-deck-bar"><div class="fc-deck-bar-fill" style="width:${learned}%"></div></div>
+            <button class="fc-deck-study-btn modal-btn primary" onclick="fcStartSmartSession('${d.id}', event)">${escapeHtml(label)}</button>
+        </article>`;
+    }).join('');
+    grid.innerHTML = cardsHtml + `<button class="fc-new-deck-card" onclick="createNewDeck()">＋ New deck</button>`;
+    grid.querySelectorAll('.fc-deck-card').forEach(el => {
+        el.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return; // buttons handle themselves
+            fcOpenDeckDetails(el.dataset.id, e);
+        });
+    });
+}
+
+// Smart Study CTA: make this deck active and start a session — due cards if any
+// are due, otherwise a full review of the deck.
+function fcStartSmartSession(deckId, event) {
+    if (event) event.stopPropagation();
+    selectDeck(deckId);
+    const deck = getActiveDeck();
+    if (!deck || deck.cards.length === 0) { showDeckManager(); return; }
+    const m = computeDeckMetrics(deck);
+    if (m.due > 0) startFlashcardSession('test', { dueOnly: true });
+    else startFlashcardSession('test', {});
+}
+
+// Interim (M2): the ⋯ / card body reveals the legacy manager+details panes for
+// this deck. M4 replaces this with the proper deck sheet.
+function fcOpenDeckDetails(deckId, event) {
+    if (event) event.stopPropagation();
+    selectDeck(deckId);
+    const ka = document.getElementById('fc-legacy-keepalive');
+    if (ka) { ka.hidden = false; ka.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+}
+
+// Keep the launcher card's "N due today" subtitle current (total across all decks).
+function updateFlashcardsLauncherBadge() {
+    const sub = document.getElementById('flashcards-launcher-sub');
+    if (!sub) return;
+    const now = Date.now();
+    let due = 0;
+    (flashcardStore.decks || []).forEach(d => (d.cards || []).forEach(c => {
+        if (c && !c.suspended && c.stats && c.stats.due <= now) due++;
+    }));
+    sub.textContent = due > 0 ? `${due} due today` : 'Review your decks';
+}
+
 function renderDeckManager() {
     normalizeFlashcardStore();
     const deck = getActiveDeck();
+    renderFcDeckGrid();            // the new Deck Home grid
+    updateFlashcardsLauncherBadge();
 
     if (flashcardStore.decks.length === 0) {
         deckList.innerHTML = '<p class="info">No decks created.</p>';
