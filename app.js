@@ -3422,10 +3422,16 @@ function startFlashcardSession(mode = 'study', options = {}) {
         wrong: 0,
         skipped: 0,
         total: cards.length,
-        dueOnly: !!options.dueOnly
+        dueOnly: !!options.dueOnly,
+        sessionStreak: 0,
+        bestStreak: 0
     };
     currentFlashcardIndex = 0;
     fcAnswerLocked = false;
+    const streakChip = document.getElementById('fc-streak-chip');
+    if (streakChip) streakChip.style.display = 'none';
+    const fcSummaryEl = document.getElementById('fc-summary');
+    if (fcSummaryEl) fcSummaryEl.style.display = 'none';
     deckManager.style.display = 'none';
     if (deckDetails) deckDetails.style.display = 'none';
     flashcardMain?.classList.add('view-mode');
@@ -3648,35 +3654,104 @@ function recordTestAnswer(isCorrect) {
     currentTestSession.answered++;
     if (isCorrect) {
         currentTestSession.correct++;
+        currentTestSession.sessionStreak = (currentTestSession.sessionStreak || 0) + 1;
+        currentTestSession.bestStreak = Math.max(currentTestSession.bestStreak || 0, currentTestSession.sessionStreak);
         flashcardFeedback.textContent = 'Marked correct. Scheduled further out.';
+        const fill = document.querySelector('.fc-progress-fill');
+        if (fill) { fill.classList.add('pulse'); setTimeout(() => fill.classList.remove('pulse'), 220); }
     } else {
         currentTestSession.wrong++;
+        currentTestSession.sessionStreak = 0;
         flashcardFeedback.textContent = 'Marked for quick review.';
     }
+    updateStreakChip();
     testScore.textContent = `Score: ${currentTestSession.correct} / ${currentTestSession.answered}`;
     saveFlashcards();
     renderDeckManager();
     flashcardEl.classList.add('flipped');
-    setTimeout(() => {
-        if (!currentTestSession) {
-            fcAnswerLocked = false;
-            testRightBtn.disabled = false;
-            testWrongBtn.disabled = false;
-            testSkipBtn.disabled = false;
-            return;
-        }
-        const completed = currentTestSession.correct + currentTestSession.wrong + currentTestSession.skipped;
+
+    // Grade -> (card shows answer) -> slide the card out in the grade's direction
+    // -> render + slide the next card in. Kept within the original ~900ms budget;
+    // reduced-motion skips straight to the plain advance. Buttons stay locked
+    // (BUG-07) until the advance actually runs.
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let advanced = false;
+    const advance = () => {
+        if (advanced) return;
+        advanced = true;
         fcAnswerLocked = false;
         testRightBtn.disabled = false;
         testWrongBtn.disabled = false;
         testSkipBtn.disabled = false;
-        if (completed >= currentTestSession.total) {
-            finishFlashcardSession(true);
-        } else {
-            const nextIndex = (currentFlashcardIndex + 1) % currentTestSession.cards.length;
-            showFlashcard(nextIndex);
+        if (!currentTestSession) return;
+        const completed = currentTestSession.correct + currentTestSession.wrong + currentTestSession.skipped;
+        if (completed >= currentTestSession.total) { finishFlashcardSession(true); return; }
+        const nextIndex = (currentFlashcardIndex + 1) % currentTestSession.cards.length;
+        flashcardEl.classList.remove('fc-out-right', 'fc-out-wrong', 'flipped');
+        showFlashcard(nextIndex);
+        if (!reduce) {
+            flashcardEl.classList.add('fc-in');
+            setTimeout(() => flashcardEl.classList.remove('fc-in'), 320);
         }
-    }, 900);
+    };
+    if (reduce) {
+        setTimeout(advance, 900);
+    } else {
+        setTimeout(() => {
+            if (advanced || !currentTestSession) { advance(); return; }
+            flashcardEl.classList.add(isCorrect ? 'fc-out-right' : 'fc-out-wrong');
+            const onEnd = () => { flashcardEl.removeEventListener('animationend', onEnd); advance(); };
+            flashcardEl.addEventListener('animationend', onEnd);
+            setTimeout(onEnd, 420); // fallback if animationend never fires
+        }, 550);
+    }
+}
+
+// Session streak chip: shows "🔥 N" once the learner is on a 2+ correct run.
+function updateStreakChip() {
+    const chip = document.getElementById('fc-streak-chip');
+    if (!chip) return;
+    const s = currentTestSession ? (currentTestSession.sessionStreak || 0) : 0;
+    if (s >= 2) {
+        chip.textContent = `🔥 ${s}`;
+        chip.style.display = '';
+        chip.classList.remove('fc-pop');
+        void chip.offsetWidth; // restart the pop animation
+        chip.classList.add('fc-pop');
+    } else {
+        chip.style.display = 'none';
+    }
+}
+
+// Session summary overlay — replaces the old alert() at the end of a test.
+function showFlashcardSummary(summary) {
+    const el = document.getElementById('fc-summary');
+    if (!el) return;
+    const graded = summary.correct + summary.wrong;
+    const acc = graded > 0 ? Math.round(100 * summary.correct / graded) : 0;
+    const headline = acc >= 80 ? 'Nice session!' : 'Session complete';
+    const best = summary.bestStreak || 0;
+    const deck = getActiveDeck();
+    const metrics = deck ? computeDeckMetrics(deck) : { due: 0 };
+    const canAgain = metrics.due > 0;
+    el.innerHTML = `
+        <div class="fc-summary-card">
+            <div class="fc-summary-emoji">${acc >= 80 ? '🎉' : '✅'}</div>
+            <h2>${headline}</h2>
+            <div class="fc-summary-tiles">
+                <div class="fc-summary-tile"><span class="fc-summary-num" style="color:var(--accent-color)">${summary.correct}</span><span>Got it</span></div>
+                <div class="fc-summary-tile"><span class="fc-summary-num" style="color:var(--danger-color)">${summary.wrong}</span><span>Again</span></div>
+                <div class="fc-summary-tile"><span class="fc-summary-num">${summary.skipped}</span><span>Skipped</span></div>
+            </div>
+            <div class="fc-summary-streak">Best streak 🔥 ${best}</div>
+            <button class="modal-btn primary" id="fc-summary-again"${canAgain ? '' : ' disabled'}>Study again</button>
+            ${canAgain ? '' : '<p class="info" style="margin:0;">Nothing due — come back later.</p>'}
+            <button class="modal-btn" id="fc-summary-home">Back to decks</button>`;
+    el.style.display = 'flex';
+    const homeBtn = document.getElementById('fc-summary-home');
+    if (homeBtn) homeBtn.onclick = () => { el.style.display = 'none'; };
+    const againBtn = document.getElementById('fc-summary-again');
+    if (canAgain && againBtn) againBtn.onclick = () => { el.style.display = 'none'; startFlashcardSession('test', { dueOnly: summary.dueOnly }); };
 }
 
 function skipCurrentCard() {
@@ -3740,7 +3815,7 @@ function finishFlashcardSession(showSummary = true) {
     if (sayFirstRecorder && sayFirstRecorder.state === 'recording') { try { sayFirstRecorder.stop(); } catch (_) { /* ignore */ } }
     showDeckManager();
     if (showSummary && summary.mode === 'test') {
-        alert(`Test complete!\nCorrect: ${summary.correct}\nWrong: ${summary.wrong}\nSkipped: ${summary.skipped}`);
+        showFlashcardSummary(summary); // overlays the Deck Home we just returned to
     }
     currentTestSession = null;
 }

@@ -562,6 +562,29 @@
         #test-skip-btn.fc-skip-btn { flex: none; width: auto; align-self: center; background: none; border: none; color: var(--text-secondary); font-size: 0.8rem; padding: 0.3rem 0.5rem; font-weight: 600; }
         #test-skip-btn.fc-skip-btn:hover { color: var(--text-main); }
         @media (max-width: 767px) { .fc-kbd { display: none; } }
+        /* ---- Review flow (M3 · part B: motion, streak, summary) ---- */
+        @keyframes fc-out-right { to { transform: translateX(120%) rotate(6deg); opacity: 0; } }
+        @keyframes fc-out-wrong { to { transform: translateX(-120%) rotate(-6deg); opacity: 0; } }
+        #flashcard.fc-out-right { animation: fc-out-right 0.32s cubic-bezier(.4,0,1,1) forwards; }
+        #flashcard.fc-out-wrong { animation: fc-out-wrong 0.32s cubic-bezier(.4,0,1,1) forwards; }
+        @keyframes fc-in { from { transform: translateY(14px) scale(.96); opacity: 0; } }
+        #flashcard.fc-in { animation: fc-in 0.28s var(--ease-spring, ease); }
+        @keyframes fc-pop { 0% { transform: scale(1); } 40% { transform: scale(1.25); } 100% { transform: scale(1); } }
+        #fc-streak-chip.fc-pop { animation: fc-pop 0.4s ease; }
+        @media (prefers-reduced-motion: reduce) {
+          #flashcard.fc-out-right, #flashcard.fc-out-wrong, #flashcard.fc-in, #fc-streak-chip.fc-pop { animation: none; }
+        }
+        /* Session summary */
+        #fc-summary { position: fixed; inset: 0; z-index: 2050; background: var(--bg-color); display: none; align-items: center; justify-content: center; padding: 1.5rem; }
+        .fc-summary-card { width: 100%; max-width: 380px; text-align: center; display: flex; flex-direction: column; gap: 1rem; }
+        .fc-summary-emoji { font-size: 3rem; }
+        .fc-summary-card h2 { margin: 0; }
+        .fc-summary-tiles { display: flex; gap: 0.75rem; }
+        .fc-summary-tile { flex: 1; background: var(--card-bg); border: 1px solid var(--border-hairline, var(--border-color)); border-radius: var(--radius-md, 14px); padding: 0.9rem 0.5rem; display: flex; flex-direction: column; gap: 0.15rem; }
+        .fc-summary-num { font-size: 1.6rem; font-weight: 800; }
+        .fc-summary-tile span:last-child { font-size: 0.8rem; color: var(--text-secondary); }
+        .fc-summary-streak { font-weight: 700; color: var(--danger-color); }
+        .fc-summary-card .modal-btn { min-height: 48px; }
 
         /* ======== UTILITY & TOP RIGHT CONTROLS ======== */
         .top-right-controls { position: absolute; top: 1rem; right: 1.5rem; display: flex; gap: 0.75rem; align-items: center; z-index: 10; }
@@ -1346,6 +1369,7 @@
                 <h3>Flashcards</h3>
                 <button id="flashcard-close-btn" aria-label="Close flashcards">×</button>
             </div>
+            <div id="fc-summary" style="display:none;"></div>
             <div id="flashcard-main">
                 <section id="fc-home" class="fc-screen">
                   <div class="fc-home-scroll">
