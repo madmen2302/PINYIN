@@ -647,6 +647,13 @@
             /* Hide desktop-only center toggle, show mobile one */
             #center-toggle-controls { display: none; }
             .header-group.center { display: flex; }
+
+            /* VIS-01 stopgap: flashcard modal is unusable at mobile widths with
+               the fixed 3-column grid; stack panels and let them scroll. */
+            #flashcard-main { grid-template-columns: 1fr; overflow-y: auto; }
+            #deck-card-table { max-height: 160px; }
+            .deck-card-row { grid-template-columns: 48px 1fr auto; }
+            .deck-card-actions { flex-direction: row; flex-wrap: wrap; }
         }
 
         /* ================================================================

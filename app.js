@@ -201,6 +201,7 @@ const panelDragState = { active: false, pointerId: null, startX: 0, target: null
 let flashcardStore = { decks: [], activeDeckId: null }; // === NEW ===
 let currentFlashcardIndex = 0; // === NEW ===
 let currentTestSession = null; // === NEW ===
+let fcAnswerLocked = false; // BUG-07: guards recordTestAnswer/skipCurrentCard against double-tap
 let radicalPracticeWriter = null;
 let radicalHistoryStack = [];
 const chineseCharRegex = /[\u4e00-\u9fff]/;
@@ -2900,8 +2901,8 @@ function toggleCardSelection(element, event) {
 }
 
 function selectAllCharacters() {
-    // Select all selectable cards in the main output, excluding the character list
-    const cards = document.querySelectorAll('#finalOutput .word-unit[data-char]');
+    // Select all selectable cards in the main output, including the character list
+    const cards = document.querySelectorAll('#finalOutput .word-unit[data-char], #finalOutput .char-list-item[data-char]');
     // Check if we should select all or deselect all
     const shouldSelect = Array.from(cards).some(card => !card.classList.contains('selected'));
     cards.forEach(card => {
@@ -3095,13 +3096,13 @@ function renderDeckManager() {
 
     deckList.innerHTML = flashcardStore.decks.map(existingDeck => `
         <div class="deck-item ${existingDeck.id === flashcardStore.activeDeckId ? 'active' : ''}" data-id="${existingDeck.id}">
-            <span>${existingDeck.name}</span>
+            <span>${escapeHtml(existingDeck.name)}</span>
             <span>${existingDeck.cards.length}</span>
         </div>
     `).join('');
 
-    deckSelector.innerHTML = flashcardStore.decks.map(existingDeck => 
-        `<option value="${existingDeck.id}" ${existingDeck.id === flashcardStore.activeDeckId ? 'selected' : ''}>${existingDeck.name}</option>`
+    deckSelector.innerHTML = flashcardStore.decks.map(existingDeck =>
+        `<option value="${existingDeck.id}" ${existingDeck.id === flashcardStore.activeDeckId ? 'selected' : ''}>${escapeHtml(existingDeck.name)}</option>`
     ).join('');
 
     const metrics = renderDeckSummary(deck);
@@ -3317,6 +3318,7 @@ function startFlashcardSession(mode = 'study', options = {}) {
         dueOnly: !!options.dueOnly
     };
     currentFlashcardIndex = 0;
+    fcAnswerLocked = false;
     deckManager.style.display = 'none';
     if (deckDetails) deckDetails.style.display = 'none';
     flashcardMain?.classList.add('view-mode');
@@ -3520,8 +3522,13 @@ function resetFlashcardWriters() {
 
 function recordTestAnswer(isCorrect) {
     if (!currentTestSession || currentTestSession.mode !== 'test') return;
+    if (fcAnswerLocked) return;
     const card = currentTestSession.cards[currentFlashcardIndex];
     if (!card) return;
+    fcAnswerLocked = true;
+    testRightBtn.disabled = true;
+    testWrongBtn.disabled = true;
+    testSkipBtn.disabled = true;
     updateCardStats(card, isCorrect);
     currentTestSession.answered++;
     if (isCorrect) {
@@ -3536,8 +3543,18 @@ function recordTestAnswer(isCorrect) {
     renderDeckManager();
     flashcardEl.classList.add('flipped');
     setTimeout(() => {
-        if (!currentTestSession) return;
+        if (!currentTestSession) {
+            fcAnswerLocked = false;
+            testRightBtn.disabled = false;
+            testWrongBtn.disabled = false;
+            testSkipBtn.disabled = false;
+            return;
+        }
         const completed = currentTestSession.correct + currentTestSession.wrong + currentTestSession.skipped;
+        fcAnswerLocked = false;
+        testRightBtn.disabled = false;
+        testWrongBtn.disabled = false;
+        testSkipBtn.disabled = false;
         if (completed >= currentTestSession.total) {
             finishFlashcardSession(true);
         } else {
@@ -3549,8 +3566,10 @@ function recordTestAnswer(isCorrect) {
 
 function skipCurrentCard() {
     if (!currentTestSession || currentTestSession.mode !== 'test') return;
+    if (fcAnswerLocked) return;
     const card = currentTestSession.cards[currentFlashcardIndex];
     if (!card) return;
+    fcAnswerLocked = true;
     card.suspended = true;
     currentTestSession.skipped++;
     flashcardFeedback.textContent = `${card.char} paused. Resume it from the deck list.`;
@@ -3560,12 +3579,14 @@ function skipCurrentCard() {
     const completed = currentTestSession.correct + currentTestSession.wrong + currentTestSession.skipped;
     if (completed >= currentTestSession.total || currentTestSession.cards.length === 0) {
         finishFlashcardSession(true);
+        fcAnswerLocked = false;
         return;
     }
     if (currentFlashcardIndex >= currentTestSession.cards.length) {
         currentFlashcardIndex = 0;
     }
     showFlashcard(currentFlashcardIndex);
+    fcAnswerLocked = false;
 }
 
 function updateCardStats(card, isCorrect) {
@@ -3595,6 +3616,10 @@ function updateCardStats(card, isCorrect) {
 function finishFlashcardSession(showSummary = true) {
     if (!currentTestSession) return;
     const summary = currentTestSession;
+    fcAnswerLocked = false;
+    testRightBtn.disabled = false;
+    testWrongBtn.disabled = false;
+    testSkipBtn.disabled = false;
     if (sayFirstBar) sayFirstBar.style.display = 'none';
     if (sayFirstToggle) sayFirstToggle.style.display = 'none';
     if (sayFirstRecorder && sayFirstRecorder.state === 'recording') { try { sayFirstRecorder.stop(); } catch (_) { /* ignore */ } }
