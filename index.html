@@ -305,6 +305,18 @@
         .tts-group label { font-weight: 500; color: var(--text-secondary); text-align: right; font-size: 0.9em; }
         .tts-group select, .tts-group input { border-radius: 8px; border: 1px solid var(--border-color); padding: 6px 10px; background: var(--card-bg); color: var(--text-main); width: 100%; }
 
+        /* Shared floating-popover look, used by the header ⚙️ settings popover
+           (#tts-controls, relocated to <body> via JS) and the reader "Aa" popover. */
+        .settings-popover {
+            position: fixed; z-index: 3000; margin-bottom: 0 !important; max-height: 80vh; overflow-y: auto;
+            background: var(--glass-bg-opaque); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+            border: 1px solid var(--border-hairline, var(--border-color));
+            box-shadow: var(--shadow-md); border-radius: var(--radius-md, 16px); padding: 1rem;
+        }
+        .popover-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.75rem 1rem; align-items: center; }
+        .settings-popover-row label { text-align: left !important; }
+        .settings-popover-autosave { display: flex; align-items: center; gap: 0.6rem; }
+
         #finalOutput { text-align: left; background: transparent; padding: 0; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; margin-top: 1rem; }
         
         /* Word Grid */
@@ -844,6 +856,9 @@
         .reader-nav { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0.4rem; justify-content: center; }
         .reader-nav-btn { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-hairline); background: var(--card-bg); color: var(--text-main); font-size: 1.2rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.15s var(--ease-spring), border-color 0.15s, color 0.15s; }
         .reader-nav-btn:hover { border-color: var(--accent-color); color: var(--accent-color); transform: scale(1.08); }
+        #reader-aa-toggle { font-size: 0.95rem; font-weight: 700; }
+        .reader-fontsize-row { display: flex; align-items: center; gap: 0.5rem; }
+        .reader-fontsize-row #reader-font-pct { min-width: 3ch; text-align: center; color: var(--text-secondary); font-size: 0.85rem; }
         #reader-chapter-select { flex: 1; min-width: 0; max-width: 340px; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--card-bg); color: var(--text-main); font-size: 0.9rem; }
         /* On phones the chapter nav drops to its own full-width second row so
            nothing in the topbar overlaps. */
@@ -856,7 +871,8 @@
         .rd-chapter { max-width: 680px; margin: 0 auto 4rem; }
         .rd-chapter-title { font-size: 1.7rem; font-weight: 800; text-align: center; letter-spacing: -0.01em; margin: 1.5rem 0 2rem; padding-bottom: 1.25rem; position: relative; }
         .rd-chapter-title::after { content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 56px; height: 3px; border-radius: 3px; background: var(--accent-grad); }
-        .rd-para { position: relative; font-size: 1.5rem; line-height: 2.6; margin: 0 0 1.5rem; }
+        #reader-content { --rd-font-scale: 1; }
+        .rd-para { position: relative; font-size: calc(1.5rem * var(--rd-font-scale, 1)); line-height: 2.6; margin: 0 0 1.5rem; }
         .rd-img { display: block; max-width: 100%; height: auto; margin: 1.75rem auto; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
         ruby.rd-char { cursor: pointer; border-radius: 5px; padding: 0 1px; transition: background 0.15s; }
         ruby.rd-char rt { font-size: 0.46em; opacity: 0.8; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600; }
@@ -947,6 +963,8 @@
         #kara-search-view { flex: 1; min-height: 0; flex-direction: column; }
         .kara-search { display: flex; gap: 0.5rem; padding: 1rem clamp(1rem,5vw,3rem) 0.5rem; max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; flex-shrink: 0; }
         .kara-search input { flex: 1; min-width: 0; padding: 0.7rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--card-bg); color: var(--text-main); font-size: 1rem; }
+        .kara-link-search { margin-top: 0.4rem; }
+        .kara-link-search input { font-size: 0.9rem; }
         .kara-results { flex: 1; min-height: 0; max-width: 720px; margin: 0 auto; width: 100%; padding: 0.5rem clamp(1rem,5vw,3rem); box-sizing: border-box; overflow-y: auto; }
         .kara-result { display: flex; justify-content: space-between; gap: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); background: var(--card-bg); border: 1px solid var(--border-hairline); margin-bottom: 0.5rem; cursor: pointer; transition: transform 0.15s var(--ease-spring), border-color 0.15s; }
         .kara-result:hover { transform: translateY(-1px); border-color: var(--accent-color); }
@@ -967,6 +985,15 @@
         #subs-overlay.active { display: flex; }
         #subs-video { width: 100%; max-height: 42vh; background: #000; display: none; }
         #subs-video.loaded { display: block; }
+        .kara-line.reading { opacity: 1; background: var(--accent-soft); border-radius: 10px; box-shadow: 0 0 0 6px var(--accent-soft); }
+        .subs-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem clamp(1rem, 5vw, 3rem); justify-content: center; border-bottom: 1px solid var(--border-hairline); background: var(--glass-bg-opaque); }
+        .reader-transport-chip:disabled { opacity: 0.5; cursor: default; }
+        .subs-summary-panel { max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; padding: 1rem clamp(1rem, 5vw, 3rem) 6rem; max-height: 38vh; overflow-y: auto; flex-shrink: 0; }
+        .subs-summary-block { background: var(--card-bg); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); padding: 1rem 1.2rem; margin-bottom: 0.75rem; }
+        .subs-summary-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent-color); margin-bottom: 0.4rem; }
+        .subs-summary-zh { font-size: 1.3rem; line-height: 2; }
+        .subs-summary-py { font-size: 0.95rem; color: var(--text-secondary); line-height: 1.7; }
+        .subs-summary-en { font-size: 1rem; color: var(--text-secondary); font-style: italic; line-height: 1.6; }
 
         /* ================================================================
            POLISH LAYER — refinement sweep, kept last.
@@ -1116,7 +1143,8 @@
                 Tools
             </h3>
             <div id="right-panel-content">
-                <div id="session-controls">
+                <div id="session-controls" class="panel-section">
+                    <h4 class="panel-title">Output</h4>
                     <button id="summary-fab" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 15v4H5v-4h14m1-2H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2zM12 3L4 9v4h16V9l-8-6z"></path></svg>
                         <span>Summary</span>
@@ -1136,6 +1164,7 @@
                 </div>
                 
                 <div id="flashcard-controls" class="panel-section">
+                    <h4 class="panel-title">Practice</h4>
                     <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 5H3V3h4v2zm0 8H3v-2h4v2zm0 8H3v-2h4v2zm4-4h10v-2H11v2zm0-8h10V7H11v2zm0-8h10V3H11v2z"></path></svg>
                         <span>Select All Chars</span>
@@ -1151,6 +1180,7 @@
                 </div>
 
                 <div id="voice-tutor-controls" class="panel-section">
+                    <h4 class="panel-title">Speaking &amp; Progress</h4>
                     <button id="voice-tutor-btn" class="panel-btn">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
                         <span>Voice Tutor (AI)</span>
@@ -1162,6 +1192,7 @@
                 </div>
 
                 <div id="radicals-controls" class="panel-section">
+                    <h4 class="panel-title">Reference</h4>
                     <button id="radicals-btn" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.6 6.3c-.4-.4-1-.4-1.4 0L18 8.6V7c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v1.6L9.8 6.3c-.4-.4-1-.4-1.4 0l-7 7c-.4.4-.4 1 0 1.4l7 7c.4.4 1 .4 1.4 0L12 19.4V21c0 1.1.9 2 2 2h2c1.1 0 2-.9 2-2v-1.6l2.2 2.2c.4.4 1 .4 1.4 0l7-7c.4-.4.4-1 0-1.4l-7-7zM16 9c-1.7 0-3-1.3-3-3s1.3-3 3-3 3 1.3 3 3-1.3 3-3 3z"></path></svg>
                         <span>Radicals & Mnemonics</span>
@@ -1203,6 +1234,7 @@
                 </div>
 
                 <div id="enhance-controls" class="panel-section">
+                    <h4 class="panel-title">Data</h4>
                     <button id="enhance-btn" class="panel-btn" style="display: none;">Enhance Definitions (AI)</button>
                     <button id="revert-btn" class="panel-btn" style="display: none; background: #6c757d; color: white;">Revert to Dictionary</button>
                 </div>

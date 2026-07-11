@@ -581,16 +581,79 @@ summaryFab.addEventListener('click', () => {
     }
 });
 
-// === NEW: Voice Settings Toggle ===
-voiceSettingsToggle.addEventListener('click', () => {
-    // Ensure main controls are visible
-    if (topControlsWrapper.classList.contains('hidden')) {
-        controlsToggleBtn.click();
+// === Settings popover (⚙️) ===
+// Consolidates the voice selector, speed slider, mic toggle and auto-save
+// toggle — previously scattered across the always-visible header — behind
+// one gear button. The controls themselves keep their original ids/listeners;
+// this only relocates them into a floating popover anchored to the button.
+function initSettingsPopover() {
+    if (!ttsControls || !voiceSettingsToggle) return;
+    voiceSettingsToggle.innerHTML = '⚙️';
+    voiceSettingsToggle.setAttribute('aria-label', 'Settings');
+    voiceSettingsToggle.title = 'Settings';
+
+    ttsControls.classList.add('settings-popover');
+    document.body.appendChild(ttsControls); // escape header/card overflow clipping
+
+    // Fold the mic (voice input) and auto-save toggles into the same popover
+    // instead of leaving them as separate always-visible header icons.
+    if (micFab) {
+        const row = document.createElement('div');
+        row.className = 'tts-group settings-popover-row';
+        const lbl = document.createElement('label');
+        lbl.textContent = 'Voice input:';
+        row.appendChild(lbl);
+        row.appendChild(micFab);
+        ttsControls.appendChild(row);
     }
-    // Toggle TTS controls
-    const ttsVisible = ttsControls.style.display === 'grid';
-    ttsControls.style.display = ttsVisible ? 'none' : 'grid';
-});
+    if (saveSessionToggle) {
+        const row = document.createElement('div');
+        row.className = 'tts-group settings-popover-row';
+        const lbl = document.createElement('label');
+        lbl.setAttribute('for', 'save-session-toggle');
+        lbl.textContent = 'Auto-save sessions:';
+        row.appendChild(lbl);
+        const wrap = document.createElement('span');
+        wrap.className = 'settings-popover-autosave';
+        // Move the whole toggle-switch label (not just the bare <input>) — the
+        // switch's visual knob is a sibling <span class="toggle-slider"> that
+        // only lights up via a same-parent CSS selector.
+        const toggleWrapper = saveSessionToggle.closest('label.toggle-switch') || saveSessionToggle;
+        wrap.appendChild(toggleWrapper);
+        if (autoSaveStatus) wrap.appendChild(autoSaveStatus);
+        row.appendChild(wrap);
+        ttsControls.appendChild(row);
+    }
+
+    const positionPopover = () => {
+        const r = voiceSettingsToggle.getBoundingClientRect();
+        const margin = 8;
+        const width = Math.min(320, window.innerWidth - margin * 2);
+        ttsControls.style.width = width + 'px';
+        let left = r.right - width;
+        left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+        ttsControls.style.top = Math.min(r.bottom + margin, window.innerHeight - 40) + 'px';
+        ttsControls.style.left = left + 'px';
+    };
+
+    voiceSettingsToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const opening = ttsControls.style.display !== 'grid';
+        ttsControls.style.display = opening ? 'grid' : 'none';
+        if (opening) positionPopover();
+    });
+    window.addEventListener('resize', () => { if (ttsControls.style.display === 'grid') positionPopover(); });
+    document.addEventListener('click', (e) => {
+        if (ttsControls.style.display !== 'grid') return;
+        if (ttsControls.contains(e.target) || voiceSettingsToggle.contains(e.target)) return;
+        ttsControls.style.display = 'none';
+    });
+    ttsControls.addEventListener('click', (e) => e.stopPropagation());
+    // Whatever's left of the old header icon groups (now missing mic/auto-save)
+    // — drop any that ended up empty instead of leaving a bare pill behind.
+    document.querySelectorAll('.top-right-group').forEach(g => { if (!g.children.length) g.remove(); });
+}
+initSettingsPopover();
 
 if (saveSessionToggle) {
     saveSessionToggle.addEventListener('change', () => {
@@ -5837,7 +5900,7 @@ function ensureReaderOverlay() {
                 <button class="reader-nav-btn" id="reader-next" aria-label="Next chapter">›</button>
             </div>
             <button class="reader-nav-btn" id="reader-aloud-toggle" title="Read aloud like an audiobook" aria-label="Read aloud">🎧</button>
-            <button class="reader-nav-btn" id="reader-heat-toggle" title="Highlight words your memory is losing — reading them reviews them" aria-label="Retrievability heat map">🔥</button>
+            <button class="reader-nav-btn" id="reader-aa-toggle" title="Reading settings — font size, theme, heat map" aria-label="Reading settings">Aa</button>
             <button class="reader-nav-btn reader-close-btn" id="reader-close" aria-label="Close reader">✕</button>
         </div>
         <div id="reader-heat-legend">
@@ -5845,6 +5908,19 @@ function ensureReaderOverlay() {
             <span class="rd-heat-swatch rd-heat-1"></span><span class="rd-heat-lbl">fresh</span>
             <span class="rd-heat-swatch rd-heat-2"></span><span class="rd-heat-lbl">fading</span>
             <span class="rd-heat-swatch rd-heat-3"></span><span class="rd-heat-lbl">due</span>
+        </div>
+        <div id="reader-aa-popover" class="settings-popover popover-grid" style="display:none;">
+            <div class="tts-group"><label>Font size:</label>
+                <div class="reader-fontsize-row">
+                    <button class="reader-transport-chip" id="reader-font-dec" aria-label="Smaller text">A-</button>
+                    <span id="reader-font-pct">100%</span>
+                    <button class="reader-transport-chip" id="reader-font-inc" aria-label="Larger text">A+</button>
+                </div>
+            </div>
+            <div class="tts-group"><label>Theme:</label><button class="reader-transport-chip" id="reader-theme-btn">🌙 Dark</button></div>
+            <div class="tts-group"><label for="reader-heat-checkbox">Memory heat map:</label>
+                <label class="toggle-switch"><input type="checkbox" id="reader-heat-checkbox"><span class="toggle-slider"></span></label>
+            </div>
         </div>
         <div id="reader-content"></div>
         <div id="reader-transport">
@@ -5855,23 +5931,77 @@ function ensureReaderOverlay() {
         </div>`;
     document.body.appendChild(o);
     wireReaderTransport(o);
-    const heatBtn = o.querySelector('#reader-heat-toggle');
+    const heatCheckbox = o.querySelector('#reader-heat-checkbox');
     const applyHeatState = (on) => {
         o.querySelector('#reader-content').classList.toggle('heat-on', on);
         o.querySelector('#reader-heat-legend').classList.toggle('visible', on);
-        heatBtn.classList.toggle('active', on);
+        heatCheckbox.checked = on;
     };
-    heatBtn.addEventListener('click', () => {
-        const on = !o.querySelector('#reader-content').classList.contains('heat-on');
-        applyHeatState(on);
-        try { localStorage.setItem('readerHeatOn', on ? '1' : '0'); } catch (_) { /* ignore */ }
+    heatCheckbox.addEventListener('change', () => {
+        applyHeatState(heatCheckbox.checked);
+        try { localStorage.setItem('readerHeatOn', heatCheckbox.checked ? '1' : '0'); } catch (_) { /* ignore */ }
     });
     o.querySelector('#reader-aloud-toggle').addEventListener('click', () => {
         if (readerAloud.active) stopReaderAloud();
         else startReaderAloud();
     });
+    // === "Aa" reading-settings popover: font size / theme / heat map ===
+    const aaBtn = o.querySelector('#reader-aa-toggle');
+    const aaPopover = o.querySelector('#reader-aa-popover');
+    const fontPct = o.querySelector('#reader-font-pct');
+    const READER_FONT_STEPS = [0.85, 1, 1.15, 1.3, 1.45];
+    let fontStepIdx = 1;
+    try {
+        const saved = parseFloat(localStorage.getItem('readerFontScale'));
+        const idx = READER_FONT_STEPS.indexOf(saved);
+        if (idx >= 0) fontStepIdx = idx;
+    } catch (_) { /* ignore */ }
+    const applyFontScale = () => {
+        const scale = READER_FONT_STEPS[fontStepIdx];
+        o.querySelector('#reader-content').style.setProperty('--rd-font-scale', scale);
+        fontPct.textContent = Math.round(scale * 100) + '%';
+    };
+    applyFontScale();
+    o.querySelector('#reader-font-dec').addEventListener('click', () => {
+        fontStepIdx = Math.max(0, fontStepIdx - 1);
+        applyFontScale();
+        try { localStorage.setItem('readerFontScale', String(READER_FONT_STEPS[fontStepIdx])); } catch (_) { /* ignore */ }
+    });
+    o.querySelector('#reader-font-inc').addEventListener('click', () => {
+        fontStepIdx = Math.min(READER_FONT_STEPS.length - 1, fontStepIdx + 1);
+        applyFontScale();
+        try { localStorage.setItem('readerFontScale', String(READER_FONT_STEPS[fontStepIdx])); } catch (_) { /* ignore */ }
+    });
+    const themeBtn = o.querySelector('#reader-theme-btn');
+    const syncThemeBtn = () => { themeBtn.textContent = document.body.dataset.theme === 'dark' ? '☀️ Light' : '🌙 Dark'; };
+    syncThemeBtn();
+    themeBtn.addEventListener('click', () => { darkModeToggle.click(); syncThemeBtn(); });
+    const positionAaPopover = () => {
+        const r = aaBtn.getBoundingClientRect();
+        const margin = 8;
+        const width = Math.min(280, window.innerWidth - margin * 2);
+        aaPopover.style.width = width + 'px';
+        let left = r.right - width;
+        left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+        aaPopover.style.top = Math.min(r.bottom + margin, window.innerHeight - 40) + 'px';
+        aaPopover.style.left = left + 'px';
+    };
+    aaBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const opening = aaPopover.style.display !== 'grid';
+        aaPopover.style.display = opening ? 'grid' : 'none';
+        if (opening) positionAaPopover();
+    });
+    aaPopover.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', (e) => {
+        if (aaPopover.style.display !== 'grid') return;
+        if (aaPopover.contains(e.target) || aaBtn.contains(e.target)) return;
+        aaPopover.style.display = 'none';
+    });
+    window.addEventListener('resize', () => { if (aaPopover.style.display === 'grid') positionAaPopover(); });
     o.querySelector('#reader-close').addEventListener('click', () => {
         stopReaderAloud();
+        aaPopover.style.display = 'none';
         o.classList.remove('active');
         if (readerObserver) { readerObserver.disconnect(); readerObserver = null; }
         if (readerHydrateObserver) { readerHydrateObserver.disconnect(); readerHydrateObserver = null; }
@@ -6053,7 +6183,7 @@ function openReader(book) {
     try { heatOn = localStorage.getItem('readerHeatOn') === '1'; } catch (_) { /* ignore */ }
     content.classList.toggle('heat-on', heatOn);
     overlay.querySelector('#reader-heat-legend').classList.toggle('visible', heatOn);
-    overlay.querySelector('#reader-heat-toggle').classList.toggle('active', heatOn);
+    overlay.querySelector('#reader-heat-checkbox').checked = heatOn;
     const select = overlay.querySelector('#reader-chapter-select');
     overlay.querySelector('#reader-title').textContent = book.title || 'Reader';
 
@@ -6270,7 +6400,9 @@ async function startHskPractice(level, category) {
 // (play the actual song on your own player and hit ▶ in sync).
 
 let karaokeOverlayEl = null;
-const karaoke = { lines: [], playing: false, elapsed: 0, base: 0, startedAt: 0, raf: null, activeIdx: -1 };
+const karaoke = { lines: [], playing: false, elapsed: 0, base: 0, startedAt: 0, raf: null, activeIdx: -1, rate: 1 };
+const KARA_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
+try { const saved = parseFloat(localStorage.getItem('karaokeSpeed')); if (!isNaN(saved) && KARA_SPEEDS.includes(saved)) karaoke.rate = saved; } catch (_) { /* ignore */ }
 
 const karaokeBtn = document.getElementById('karaoke-btn');
 if (karaokeBtn) karaokeBtn.addEventListener('click', openKaraoke);
@@ -6320,6 +6452,10 @@ function ensureKaraokeOverlay() {
                 <input type="search" id="kara-input" placeholder="Search a song or artist…">
                 <button class="modal-btn primary" id="kara-search-btn">Search</button>
             </div>
+            <div class="kara-search kara-link-search">
+                <input type="url" id="kara-link-input" inputmode="url" placeholder="…or paste a Spotify / Apple Music / YouTube link" autocomplete="off">
+                <button class="modal-btn" id="kara-link-btn">Use link</button>
+            </div>
             <button class="modal-btn" id="kara-identify" style="display:block; margin:0 auto 0.5rem;">🎧 Identify the song playing now</button>
             <div class="kara-results" id="kara-results"></div>
         </div>
@@ -6327,15 +6463,92 @@ function ensureKaraokeOverlay() {
         <div class="kara-transport" id="kara-transport" style="display:none;">
             <button class="kara-play-btn" id="kara-play">▶</button>
             <span class="kara-time" id="kara-time">0:00</span>
+            <button class="reader-transport-chip" id="kara-speed" title="Playback speed — slow down or speed up to match the song">1×</button>
         </div>`;
     document.body.appendChild(karaokeOverlayEl);
     karaokeOverlayEl.querySelector('#kara-close').addEventListener('click', closeKaraoke);
     karaokeOverlayEl.querySelector('#kara-back').addEventListener('click', showKaraokeSearch);
     karaokeOverlayEl.querySelector('#kara-search-btn').addEventListener('click', () => searchSongs());
     karaokeOverlayEl.querySelector('#kara-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchSongs(); });
+    karaokeOverlayEl.querySelector('#kara-link-btn').addEventListener('click', () => resolveKaraokeLink());
+    karaokeOverlayEl.querySelector('#kara-link-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') resolveKaraokeLink(); });
     karaokeOverlayEl.querySelector('#kara-play').addEventListener('click', toggleKaraokePlay);
     karaokeOverlayEl.querySelector('#kara-identify').addEventListener('click', identifySong);
+    const speedBtn = karaokeOverlayEl.querySelector('#kara-speed');
+    speedBtn.textContent = karaoke.rate + '×';
+    speedBtn.addEventListener('click', () => {
+        let next = KARA_SPEEDS.find(s => s > karaoke.rate + 0.001);
+        if (next === undefined) next = KARA_SPEEDS[0];
+        // Rebase the timer so changing speed mid-playback doesn't jump the elapsed time.
+        karaoke.base = karaoke.elapsed;
+        karaoke.startedAt = performance.now();
+        karaoke.rate = next;
+        speedBtn.textContent = next + '×';
+        try { localStorage.setItem('karaokeSpeed', String(next)); } catch (_) { /* ignore */ }
+    });
     return karaokeOverlayEl;
+}
+
+// Paste a link from Apple Music / Spotify / YouTube / etc, resolve it to a
+// "title artist" search query server-side (no client API keys needed), then
+// run the normal song search with that query.
+async function resolveKaraokeLink() {
+    const input = karaokeOverlayEl.querySelector('#kara-link-input');
+    const url = (input.value || '').trim();
+    if (!url) return;
+    const results = karaokeOverlayEl.querySelector('#kara-results');
+    results.innerHTML = `<p class="info" style="text-align:center;">Reading the link…</p>`;
+    try {
+        const resp = await fetch(`${backendUrl}/resolve-track`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+        if (resp.status === 404) throw new Error("Couldn't read that link — try typing the song name instead.");
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Couldn't read that link — try typing the song name instead.");
+        const query = data.query || `${data.title || ''} ${data.artist || ''}`.trim();
+        if (!query) throw new Error("Couldn't figure out the song from that link.");
+        karaokeOverlayEl.querySelector('#kara-input').value = query;
+        await searchSongs();
+    } catch (e) {
+        results.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+// Normalize a title/artist string for fuzzy matching: lowercase, drop
+// parenthetical suffixes ("(Live)", "（伴奏）"...) and non-alphanumeric chars.
+function normalizeForMatch(s) {
+    return (s || '')
+        .toLowerCase()
+        .replace(/[\(\[（【][^)\]）】]*[\)\]）】]/g, '')
+        .replace(/[^\p{L}\p{N}]+/gu, '')
+        .trim();
+}
+
+// ACRCloud correctly recognizes the title+artist, but a NetEase search for
+// that query can rank an unrelated hit first (a same-named song by a
+// different artist, a cover, a remix). Blindly taking hits[0] is what made
+// the app "identify the right song but display the wrong one" — score every
+// hit against the recognized title/artist and pick the closest match instead
+// of trusting search position.
+function pickBestSongMatch(hits, title, artist) {
+    if (!hits || !hits.length) return null;
+    const nTitle = normalizeForMatch(title);
+    const nArtist = normalizeForMatch(artist);
+    let best = null, bestScore = -1;
+    for (const s of hits) {
+        const hTitle = normalizeForMatch(s.name);
+        const hArtist = normalizeForMatch(s.artist);
+        let score = 0;
+        if (nTitle && hTitle === nTitle) score += 2;
+        else if (nTitle && hTitle && (hTitle.includes(nTitle) || nTitle.includes(hTitle))) score += 1;
+        if (nArtist && hArtist === nArtist) score += 2;
+        else if (nArtist && hArtist && (hArtist.includes(nArtist) || nArtist.includes(hArtist))) score += 1;
+        if (score > bestScore) { bestScore = score; best = s; }
+    }
+    // Only trust a hit that actually matched title or artist; otherwise fall
+    // back to the top search result (still better than nothing).
+    return bestScore > 0 ? best : hits[0];
 }
 
 // Record ~8s of the song playing, identify it via ACRCloud, then auto-load its
@@ -6383,9 +6596,11 @@ async function identifySong() {
             if (!resp.ok) throw new Error(data.error || 'No match.');
             results.innerHTML = `<p class="info" style="text-align:center;">Found: <strong>${escapeHtml(data.title)}</strong> — ${escapeHtml(data.artist)}. Loading synced lyrics…</p>`;
             // Find the song on NetEase and auto-open it at the recognized offset.
+            // Match against the recognized title/artist (not just the top hit) —
+            // see pickBestSongMatch for why.
             const sResp = await fetch(`${backendUrl}/song-search?q=${encodeURIComponent(data.title + ' ' + data.artist)}`);
             const sData = await sResp.json();
-            const song = (sData.songs || [])[0];
+            const song = pickBestSongMatch(sData.songs, data.title, data.artist);
             if (!song) throw new Error(`Recognized "${data.title}" but couldn't find its lyrics.`);
             selectSong(song.id, `${song.name} — ${song.artist}`, (data.offsetMs || 0) / 1000);
         } catch (e) {
@@ -6528,7 +6743,7 @@ function seekKaraoke(t) {
 
 function karaokeTick() {
     if (!karaoke.playing) return;
-    karaoke.elapsed = karaoke.base + (performance.now() - karaoke.startedAt) / 1000;
+    karaoke.elapsed = karaoke.base + (performance.now() - karaoke.startedAt) / 1000 * karaoke.rate;
     highlightKaraoke();
     updateKaraokeTime(karaoke.elapsed);
     karaoke.raf = requestAnimationFrame(karaokeTick);
@@ -6584,7 +6799,13 @@ function updateKaraokeTime(sec) {
 // in sync with whatever you're watching, or load the video file to auto-sync.
 
 let subsOverlayEl = null;
-const subs = { cues: [], playing: false, elapsed: 0, base: 0, startedAt: 0, raf: null, activeIdx: -1, video: null };
+const subs = { cues: [], playing: false, elapsed: 0, base: 0, startedAt: 0, raf: null, activeIdx: -1, video: null, rate: 1 };
+const SUBS_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
+try { const saved = parseFloat(localStorage.getItem('subsSpeed')); if (!isNaN(saved) && SUBS_SPEEDS.includes(saved)) subs.rate = saved; } catch (_) { /* ignore */ }
+
+// Read-aloud state for the "read whole thing" buttons (🔊中 / 🔊EN). Advances
+// through the cue list line by line, highlighting each as it's spoken.
+const subsReading = { active: false, token: 0 };
 
 const subsBtn = document.getElementById('subs-btn');
 const subsFileInput = document.getElementById('subs-file-input');
@@ -6713,16 +6934,43 @@ function ensureSubsOverlay() {
             <button class="modal-btn" id="subs-load-video">Load video</button>
             <button class="modal-btn" id="subs-close">Close</button>
         </div>
+        <div class="subs-toolbar" id="subs-toolbar">
+            <button class="reader-transport-chip" id="subs-read-zh" title="Read the Chinese aloud, line by line">🔊中</button>
+            <button class="reader-transport-chip" id="subs-read-en" title="Read the English translation aloud">🔊EN</button>
+            <button class="reader-transport-chip" id="subs-read-stop" style="display:none;" title="Stop reading">⏹ Stop</button>
+            <button class="reader-transport-chip" id="subs-summary-btn" title="Summarize this video with AI (Chinese, English &amp; pinyin)">📝 AI summary</button>
+        </div>
         <video id="subs-video" controls playsinline></video>
         <div class="kara-player" id="subs-player"></div>
+        <div id="subs-summary-panel" class="subs-summary-panel" style="display:none;"></div>
         <div class="kara-transport" id="subs-transport">
-            <button class="kara-play-btn" id="subs-play">▶</button>
-            <span class="kara-time" id="subs-time">0:00</span>
+            <div id="subs-playback-controls" style="display:contents;">
+                <button class="kara-play-btn" id="subs-play">▶</button>
+                <span class="kara-time" id="subs-time">0:00</span>
+            </div>
+            <button class="reader-transport-chip" id="subs-speed" title="Playback speed — slow down or speed up to match the video">1×</button>
         </div>`;
     document.body.appendChild(subsOverlayEl);
     subsOverlayEl.querySelector('#subs-close').addEventListener('click', closeSubs);
     subsOverlayEl.querySelector('#subs-load-video').addEventListener('click', () => subsVideoInput.click());
     subsOverlayEl.querySelector('#subs-play').addEventListener('click', toggleSubsPlay);
+    subsOverlayEl.querySelector('#subs-read-zh').addEventListener('click', readSubsChinese);
+    subsOverlayEl.querySelector('#subs-read-en').addEventListener('click', readSubsEnglish);
+    subsOverlayEl.querySelector('#subs-read-stop').addEventListener('click', stopSubsReading);
+    subsOverlayEl.querySelector('#subs-summary-btn').addEventListener('click', openSubsSummary);
+    const subsSpeedBtn = subsOverlayEl.querySelector('#subs-speed');
+    subsSpeedBtn.textContent = subs.rate + '×';
+    subsSpeedBtn.addEventListener('click', () => {
+        let next = SUBS_SPEEDS.find(s => s > subs.rate + 0.001);
+        if (next === undefined) next = SUBS_SPEEDS[0];
+        subs.rate = next;
+        subsSpeedBtn.textContent = next + '×';
+        // Rebase the timer-driven mode so the change doesn't jump elapsed time.
+        subs.base = subs.elapsed;
+        subs.startedAt = performance.now();
+        if (subs.video && subs.video.classList.contains('loaded')) subs.video.playbackRate = next;
+        try { localStorage.setItem('subsSpeed', String(next)); } catch (_) { /* ignore */ }
+    });
     subs.video = subsOverlayEl.querySelector('#subs-video');
     subs.video.addEventListener('timeupdate', () => {
         if (!subs.video.classList.contains('loaded')) return;
@@ -6735,16 +6983,25 @@ function ensureSubsOverlay() {
 
 function closeSubs() {
     stopSubsTimer();
+    stopSubsReading();
     if (subs.video) { try { subs.video.pause(); } catch (_) {} }
     if (subsOverlayEl) subsOverlayEl.classList.remove('active');
 }
 
 function renderSubsPlayer(name, cues) {
     ensureSubsOverlay();
+    stopSubsReading();
     subs.cues = cues;
     subs.elapsed = 0; subs.base = 0; subs.activeIdx = -1; subs.playing = false;
     subsOverlayEl.querySelector('#subs-title').textContent = name;
     subsOverlayEl.querySelector('#subs-play').textContent = '▶';
+    // Reset transport to the timer-driven layout (a fresh subs file has no
+    // video attached yet); loadSubsVideo() re-hides the play/time half.
+    subsOverlayEl.querySelector('#subs-transport').style.display = 'flex';
+    subsOverlayEl.querySelector('#subs-playback-controls').style.display = 'contents';
+    const summaryPanel = subsOverlayEl.querySelector('#subs-summary-panel');
+    summaryPanel.style.display = 'none';
+    summaryPanel.innerHTML = '';
     const player = subsOverlayEl.querySelector('#subs-player');
     player.innerHTML =
         `<p class="kara-hint">Tap ▶ in sync with what you're watching, or “Load video” to auto-sync. Tap a line to jump.</p>` +
@@ -6763,7 +7020,10 @@ function loadSubsVideo(file) {
     if (subs.video.src && subs.video.src.startsWith('blob:')) URL.revokeObjectURL(subs.video.src);
     subs.video.src = URL.createObjectURL(file);
     subs.video.classList.add('loaded');
-    subsOverlayEl.querySelector('#subs-transport').style.display = 'none'; // video controls drive sync now
+    subs.video.playbackRate = subs.rate;
+    // Video controls drive sync now — hide our play/time row but keep the
+    // speed chip (native <video> controls have no cross-browser speed UI).
+    subsOverlayEl.querySelector('#subs-playback-controls').style.display = 'none';
 }
 
 function toggleSubsPlay() {
@@ -6792,7 +7052,7 @@ function seekSubs(t) {
 
 function subsTick() {
     if (!subs.playing) return;
-    subs.elapsed = subs.base + (performance.now() - subs.startedAt) / 1000;
+    subs.elapsed = subs.base + (performance.now() - subs.startedAt) / 1000 * subs.rate;
     highlightSubs();
     updateSubsTime(subs.elapsed);
     subs.raf = requestAnimationFrame(subsTick);
@@ -6822,4 +7082,114 @@ function updateSubsTime(sec) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     el.textContent = `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// === Read-aloud (whole transcript, Chinese or English) ===
+// Speaks through subs.cues line by line, highlighting the current one — this
+// doubles as both "read the whole thing" and "read line by line" since the
+// cues already are the natural line boundaries.
+function speakEnglish(text, { onstart, onend } = {}) {
+    if (!('speechSynthesis' in window)) { if (onend) onend(); return; }
+    try { window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const v = voices.find(v => /^en/i.test(v.lang));
+    if (v) u.voice = v;
+    u.lang = v ? v.lang : 'en-US';
+    u.rate = currentTtsRate();
+    if (onstart) u.onstart = onstart;
+    u.onend = () => { if (onend) onend(); };
+    u.onerror = () => { if (onend) onend(); };
+    window.speechSynthesis.speak(u);
+}
+
+function highlightSubsReadIdx(idx) {
+    const player = subsOverlayEl.querySelector('#subs-player');
+    player.querySelectorAll('.kara-line.reading').forEach(el => el.classList.remove('reading'));
+    if (idx >= 0) {
+        const el = player.querySelector(`.kara-line[data-i="${idx}"]`);
+        if (el) { el.classList.add('reading'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }
+}
+
+function updateSubsReadButtons() {
+    if (!subsOverlayEl) return;
+    const stopBtn = subsOverlayEl.querySelector('#subs-read-stop');
+    if (stopBtn) stopBtn.style.display = subsReading.active ? 'inline-flex' : 'none';
+    const zhBtn = subsOverlayEl.querySelector('#subs-read-zh');
+    const enBtn = subsOverlayEl.querySelector('#subs-read-en');
+    if (zhBtn) zhBtn.disabled = subsReading.active;
+    if (enBtn) enBtn.disabled = subsReading.active;
+}
+
+function stopSubsReading() {
+    subsReading.token++;
+    subsReading.active = false;
+    stopAllSpeech();
+    if (subsOverlayEl) { highlightSubsReadIdx(-1); updateSubsReadButtons(); }
+}
+
+async function readSubsChinese() {
+    if (subsReading.active || !subs.cues.length) return;
+    subsReading.active = true;
+    const token = ++subsReading.token;
+    updateSubsReadButtons();
+    for (let i = 0; i < subs.cues.length; i++) {
+        if (token !== subsReading.token) return;
+        highlightSubsReadIdx(i);
+        await new Promise(resolve => speakSmart(subs.cues[i].text, { onend: resolve }));
+    }
+    if (token === subsReading.token) stopSubsReading();
+}
+
+// Reads the English translation of every cue, translating (and caching in the
+// visible .kara-en element) any line that hasn't been translated yet.
+async function readSubsEnglish() {
+    if (subsReading.active || !subs.cues.length) return;
+    subsReading.active = true;
+    const token = ++subsReading.token;
+    updateSubsReadButtons();
+    const player = subsOverlayEl.querySelector('#subs-player');
+    for (let i = 0; i < subs.cues.length; i++) {
+        if (token !== subsReading.token) return;
+        highlightSubsReadIdx(i);
+        const enEl = player.querySelector(`.kara-line[data-i="${i}"] .kara-en`);
+        let text = enEl ? enEl.textContent.trim() : '';
+        if (!text) {
+            try { text = await translateText(subs.cues[i].text, 'EN'); if (enEl) enEl.textContent = text; } catch (_) { text = ''; }
+        }
+        if (token !== subsReading.token) return;
+        if (text) await new Promise(resolve => speakEnglish(text, { onend: resolve }));
+    }
+    if (token === subsReading.token) stopSubsReading();
+}
+
+// === AI summary (Chinese + English + pinyin, like the reader's translation) ===
+async function openSubsSummary() {
+    if (!subsOverlayEl || !subs.cues.length) return;
+    const panel = subsOverlayEl.querySelector('#subs-summary-panel');
+    panel.style.display = 'block';
+    panel.innerHTML = `<p class="info" style="text-align:center;">🧠 Summarizing…</p>`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const fullText = subs.cues.map(c => c.text).join('');
+    try {
+        const resp = await fetch(`${backendUrl}/summarize`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: fullText })
+        });
+        if (resp.status === 404) throw new Error('AI summary needs a server update — ask the site owner to deploy it.');
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Could not summarize this video.');
+        const zh = (data.summary || '').trim();
+        if (!zh) throw new Error('Got an empty summary.');
+        let en = '';
+        try { en = await translateText(zh, 'EN'); } catch (_) { en = ''; }
+        const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(zh, { toneType: 'symbol' }) : '';
+        panel.innerHTML = `
+            <div class="subs-summary-block"><div class="subs-summary-label">中文摘要 · Chinese</div><div class="subs-summary-zh">${escapeHtml(zh)}</div></div>
+            <div class="subs-summary-block"><div class="subs-summary-label">Pinyin</div><div class="subs-summary-py">${escapeHtml(py)}</div></div>
+            <div class="subs-summary-block"><div class="subs-summary-label">English</div><div class="subs-summary-en">${escapeHtml(en || '(translation unavailable)')}</div></div>`;
+    } catch (e) {
+        panel.innerHTML = `<p class="error" style="text-align:center;">${escapeHtml(e.message)}</p>`;
+    }
 }
