@@ -195,6 +195,63 @@ const flashcardModeLabels = {
     mnemonic: 'DB Mnemonic',
     userMnemonic: 'Your Mnemonic'
 };
+// Named card-layout presets (M4B). Recognition is the default; the segmented
+// control in the deck sheet writes one of these into flashcardConfig, and
+// "Custom" reveals the raw checkboxes. Detection is order-insensitive.
+const FLASHCARD_PRESETS = {
+    recognition: { front: ['char'], back: ['pinyin', 'def', 'userMnemonic', 'components', 'mnemonic'] },
+    recall: { front: ['def'], back: ['char', 'pinyin'] },
+    writing: { front: ['writing'], back: ['char', 'pinyin', 'def'] },
+    cloze: { front: ['sentence', 'pinyin'], back: ['char', 'pinyin', 'def', 'sentence'] }
+};
+function fcSameSet(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    const sb = new Set(b);
+    return a.every(x => sb.has(x));
+}
+function detectFlashcardPreset() {
+    for (const [name, p] of Object.entries(FLASHCARD_PRESETS)) {
+        if (fcSameSet(flashcardConfig.front, p.front) && fcSameSet(flashcardConfig.back, p.back)) return name;
+    }
+    return 'custom';
+}
+function isRecognitionConfig() { return detectFlashcardPreset() === 'recognition'; }
+function syncLayoutCheckboxes() {
+    document.querySelectorAll('.layout-checkbox').forEach(cb => {
+        const face = cb.dataset.face;
+        cb.checked = (flashcardConfig[face] || []).includes(cb.value);
+    });
+}
+function applyFlashcardPreset(name) {
+    const p = FLASHCARD_PRESETS[name];
+    if (!p) return;
+    flashcardConfig.front = [...p.front];
+    flashcardConfig.back = [...p.back];
+    saveFlashcardPreferences();
+    syncLayoutCheckboxes();
+    renderPresetControl();
+    if (currentTestSession) showFlashcard(currentFlashcardIndex);
+}
+function renderPresetControl() {
+    const el = document.getElementById('fc-preset-control');
+    if (!el) return;
+    const active = detectFlashcardPreset();
+    const labels = { recognition: 'Recognition', recall: 'Recall', writing: 'Writing', cloze: 'Sentence', custom: 'Custom' };
+    el.innerHTML = Object.keys(labels).map(name =>
+        `<button type="button" class="fc-preset-pill${name === active ? ' active' : ''}" data-preset="${name}">${labels[name]}</button>`
+    ).join('');
+    el.querySelectorAll('.fc-preset-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const name = btn.dataset.preset;
+            const details = document.getElementById('fc-custom-layout');
+            if (name === 'custom') { if (details) details.open = true; return; }
+            applyFlashcardPreset(name);
+        });
+    });
+    const details = document.getElementById('fc-custom-layout');
+    if (details) details.open = (active === 'custom');
+}
+
 const viewportQuery = window.matchMedia('(max-width: 1024px)');
 let flashcardRenderToken = 0;
 const panelDragState = { active: false, pointerId: null, startX: 0, target: null, initialWidth: 0, panelElement: null, handleElement: null };
@@ -746,6 +803,7 @@ flashcardLayoutCheckboxes.forEach(cb => {
         if (selected.length > 0) {
             flashcardConfig[face] = selected;
             saveFlashcardPreferences();
+            renderPresetControl(); // reflect the change (likely -> Custom) in the pills
             if (currentTestSession) showFlashcard(currentFlashcardIndex);
         } else {
             cb.checked = true; // Prevent unchecking the last item
@@ -3279,6 +3337,7 @@ function openDeckSheet(deckId, event) {
         } else counts.textContent = '';
     }
     renderDeckManager();
+    renderPresetControl();
     sheet.classList.add('open');
     document.getElementById('fc-deck-scrim')?.classList.add('open');
 }
@@ -3521,15 +3580,6 @@ function buildSessionCards(deck, options = {}) {
         });
 }
 
-function startFlashcardGameMode() {
-    // NEW: Apply styles to make the flashcard smaller for game mode
-    flashcardEl.style.width = 'calc(0.8 * 70vh)'; // 80% of the default width
-    flashcardEl.style.height = 'calc(0.8 * 70vh)'; // 80% of the default height
-
-    showFlashcardModal();
-    startFlashcardSession('test', { dueOnly: true }, true);
-}
-
 function startFlashcardSession(mode = 'study', options = {}) {
     const deck = getActiveDeck();
     if (!deck || deck.cards.length === 0) {
@@ -3727,14 +3777,18 @@ async function renderCardFace(target, types, card, faceKey, token) {
                 </div>
             </div>
         `;
-        contentWrapper.innerHTML = detailedHtml;
-
-        // No custom-DB data: DON'T auto-fire a paid AI call on every card render
-        // (that spent money on every flip and could 429 the rate limiter). The
-        // learner taps the "AI Insight" button on demand instead.
-        if (!dbData) {
-            const aiSlot = contentWrapper.querySelector('.radical-ai');
-            if (aiSlot) aiSlot.innerHTML = `<p class="info" style="font-size:0.85em;">Tap “AI Insight” for an explanation &amp; mnemonic.</p>`;
+        // Only the Recognition preset uses this rich fixed back layout; other
+        // presets honor the configured back parts already rendered by the loop
+        // above — making the Back checkboxes honest without changing the default.
+        if (isRecognitionConfig()) {
+            contentWrapper.innerHTML = detailedHtml;
+            // No custom-DB data: DON'T auto-fire a paid AI call on every card render
+            // (that spent money on every flip and could 429 the rate limiter). The
+            // learner taps the "AI Insight" button on demand instead.
+            if (!dbData) {
+                const aiSlot = contentWrapper.querySelector('.radical-ai');
+                if (aiSlot) aiSlot.innerHTML = `<p class="info" style="font-size:0.85em;">Tap “AI Insight” for an explanation &amp; mnemonic.</p>`;
+            }
         }
     }
 }

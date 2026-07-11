@@ -608,6 +608,15 @@
           #fc-deck-sheet { inset: 0 0 0 auto; width: 420px; max-height: none; height: 100%; border-radius: var(--radius-lg, 20px) 0 0 var(--radius-lg, 20px); transform: translateX(100%); }
           #fc-deck-sheet.open { transform: none; }
         }
+        /* ---- Card-layout presets (M4 · part B) ---- */
+        .fc-preset-control { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+        .fc-preset-pill { border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); border-radius: 999px; padding: 0.35rem 0.85rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; min-height: 36px; }
+        .fc-preset-pill.active { background: var(--accent-grad); color: #fff; border-color: transparent; }
+        .fc-custom-layout > summary { cursor: pointer; font-size: 0.85rem; color: var(--text-secondary); padding: 0.25rem 0; list-style: none; }
+        .fc-custom-layout > summary::-webkit-details-marker { display: none; }
+        .fc-custom-layout > summary::before { content: '⚙ '; }
+        /* 'Test Focus' is cosmetic only — keep in the DOM (testModes still persists) but out of the UI. */
+        #flashcard-test-options { display: none; }
 
         /* ======== UTILITY & TOP RIGHT CONTROLS ======== */
         .top-right-controls { position: absolute; top: 1rem; right: 1.5rem; display: flex; gap: 0.75rem; align-items: center; z-index: 10; }
@@ -1422,7 +1431,10 @@
                         <div id="deck-card-table" style="max-height: 200px; overflow-y: auto;"></div>
                     </div>
                     <div id="flashcard-settings" class="panel-section">
-                        <h4 class="panel-title" style="text-align: left;">Card Layout</h4>
+                        <h4 class="panel-title" style="text-align: left;">Card layout</h4>
+                        <div id="fc-preset-control" class="fc-preset-control"></div>
+                        <details id="fc-custom-layout" class="fc-custom-layout">
+                            <summary>Custom…</summary>
                         <div class="setting-row">
                             <label>Front</label>
                             <div id="flashcard-front-options" class="flashcard-face-options" style="display: flex; gap: 1rem;">
@@ -1442,6 +1454,7 @@
                                 <label><input type="checkbox" class="layout-checkbox" data-face="back" value="sentence"> Sentence</label>
                             </div>
                         </div>
+                        </details>
                     </div>
                     <div id="flashcard-test-options" class="panel-section">
                         <h4 style="margin-bottom: 0.5rem;">Test Focus</h4>
