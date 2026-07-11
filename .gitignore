@@ -6,6 +6,14 @@ _OLD_MESS/
 docs/
 .claude/
 
+# Home-worker setup prose (infra disclosure) — keep local, hand to the home PC
+# directly; the worker .py stays tracked so the home PC can clone it.
+scripts/*.md
+
+# Python build junk
+__pycache__/
+*.pyc
+
 # System Junk
 .DS_Store
 *.log
