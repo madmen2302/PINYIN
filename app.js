@@ -709,6 +709,16 @@ if (saveSessionToggle) {
 flashcardBtn.addEventListener('click', showFlashcardModal);
 const flashcardsLauncherBtn = document.getElementById('flashcards-launcher-btn');
 if (flashcardsLauncherBtn) flashcardsLauncherBtn.addEventListener('click', showFlashcardModal);
+// Deck sheet (M4) wiring
+document.getElementById('fc-deck-scrim')?.addEventListener('click', closeDeckSheet);
+document.getElementById('fc-sheet-close')?.addEventListener('click', closeDeckSheet);
+document.getElementById('fc-sheet-rename')?.addEventListener('click', renameActiveDeck);
+document.getElementById('fc-sheet-study')?.addEventListener('click', () => { const id = flashcardStore.activeDeckId; closeDeckSheet(); fcStartSmartSession(id); });
+document.getElementById('fc-sheet-preview')?.addEventListener('click', () => { closeDeckSheet(); startFlashcardSession('study'); });
+document.getElementById('fc-sheet-practice')?.addEventListener('click', () => { closeDeckSheet(); startFlashcardSession('test', {}); });
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('fc-deck-sheet')?.classList.contains('open')) { e.preventDefault(); closeDeckSheet(); }
+});
 flashcardGameBtn.addEventListener('click', openGamesHub);
 selectAllCharsBtn.addEventListener('click', selectAllCharacters);
 flashcardCloseBtn.addEventListener('click', () => {
@@ -3132,10 +3142,8 @@ function showDeckManager() {
     currentTestSession = null;
     flashcardFeedback.textContent = '';
     flashcardMain?.classList.remove('view-mode');
-    // Deck Home shows the new grid; the legacy panes stay folded away until a
-    // deck's ⋯ is tapped (fcOpenDeckDetails un-hides them).
-    const fcKeepalive = document.getElementById('fc-legacy-keepalive');
-    if (fcKeepalive) fcKeepalive.hidden = true;
+    // Deck Home shows the new grid; deck actions/settings live in the deck sheet.
+    if (typeof closeDeckSheet === 'function') closeDeckSheet();
     deckManager.style.display = 'flex';
     if (deckDetails) deckDetails.style.display = 'flex';
     flashcardModal.classList.remove('fullscreen-view');
@@ -3244,13 +3252,54 @@ function fcStartSmartSession(deckId, event) {
     else startFlashcardSession('test', {});
 }
 
-// Interim (M2): the ⋯ / card body reveals the legacy manager+details panes for
-// this deck. M4 replaces this with the proper deck sheet.
+// Deck sheet (M4): the ⋯ / card body opens a bottom sheet (mobile) / side panel
+// (desktop) with this deck's actions, cards and settings. The existing legacy
+// controls are relocated into the sheet once (ids preserved) so every handler
+// keeps working; activeDeckId stays the single source of "which deck".
 function fcOpenDeckDetails(deckId, event) {
+    openDeckSheet(deckId, event);
+}
+
+function openDeckSheet(deckId, event) {
     if (event) event.stopPropagation();
-    selectDeck(deckId);
-    const ka = document.getElementById('fc-legacy-keepalive');
-    if (ka) { ka.hidden = false; ka.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    if (deckId) selectDeck(deckId);
+    const sheet = document.getElementById('fc-deck-sheet');
+    const body = document.getElementById('fc-sheet-body');
+    if (!sheet || !body) return;
+    const keepalive = document.getElementById('fc-legacy-keepalive');
+    if (keepalive && keepalive.parentElement !== body) { keepalive.hidden = false; body.appendChild(keepalive); }
+    const deck = getActiveDeck();
+    const title = document.getElementById('fc-sheet-title');
+    if (title) title.textContent = deck ? deck.name : 'Deck';
+    const counts = document.getElementById('fc-sheet-counts');
+    if (counts) {
+        if (deck) {
+            const m = computeDeckMetrics(deck);
+            counts.textContent = `${m.total} card${m.total === 1 ? '' : 's'} · ${m.due} due · ${m.newCards} new${m.suspended ? ` · ${m.suspended} paused` : ''}`;
+        } else counts.textContent = '';
+    }
+    renderDeckManager();
+    sheet.classList.add('open');
+    document.getElementById('fc-deck-scrim')?.classList.add('open');
+}
+
+function closeDeckSheet() {
+    document.getElementById('fc-deck-sheet')?.classList.remove('open');
+    document.getElementById('fc-deck-scrim')?.classList.remove('open');
+}
+
+function renameActiveDeck() {
+    const deck = getActiveDeck();
+    if (!deck) return;
+    const name = prompt('Rename deck:', deck.name);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    deck.name = trimmed;
+    saveFlashcards();
+    renderDeckManager();
+    const title = document.getElementById('fc-sheet-title');
+    if (title) title.textContent = deck.name;
 }
 
 // Keep the launcher card's "N due today" subtitle current (total across all decks).
@@ -3507,6 +3556,7 @@ function startFlashcardSession(mode = 'study', options = {}) {
     };
     currentFlashcardIndex = 0;
     fcAnswerLocked = false;
+    if (typeof closeDeckSheet === 'function') closeDeckSheet();
     const streakChip = document.getElementById('fc-streak-chip');
     if (streakChip) streakChip.style.display = 'none';
     const fcSummaryEl = document.getElementById('fc-summary');
