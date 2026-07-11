@@ -382,9 +382,11 @@
 
         /* ======== RIGHT PANEL & TOOLS ======== */
         .panel-section { margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
-        .panel-title { text-align: center; cursor: pointer; font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
-        .panel-title::after { content: '🔼'; font-size: 0.8em; transition: transform 0.3s; }
-        .panel-section.collapsed .panel-title::after { transform: rotate(180deg); }
+        .panel-title { text-align: center; font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+        /* Only titles that actually collapse a section get the pointer + chevron. */
+        .panel-title.collapsible { cursor: pointer; }
+        .panel-title.collapsible::after { content: '🔼'; font-size: 0.8em; transition: transform 0.3s; }
+        .panel-section.collapsed .panel-title.collapsible::after { transform: rotate(180deg); }
         .panel-section.collapsed > *:not(.panel-title) { max-height: 0 !important; opacity: 0; overflow: hidden; margin: 0; padding: 0; }
 
         .panel-btn {
@@ -1130,7 +1132,7 @@
                     <div class="tts-group"><label for="auto-pronounce-toggle">Auto-Pronounce:</label><input type="checkbox" id="auto-pronounce-toggle" /></div>
                     <div class="tts-group"><label for="repeat-count-selector">Repeat:</label><select id="repeat-count-selector"><option value="1">x1</option><option value="10">x10</option><option value="20">x20</option><option value="50">x50</option></select></div>
                     <div class="tts-group"><label for="voice-selector">Voice:</label><select id="voice-selector"></select></div>
-                    <div class="tts-group"><label for="speed-slider">Speed:</label><input type="range" id="speed-slider" min="0.5" max="1.5" step="0.1" value="0.9"></div>
+                    <div class="tts-group"><label for="speed-slider">Speed:</label><input type="range" id="speed-slider" min="0.5" max="1.5" step="0.05" value="0.9"></div>
                 </div>
             </div>
 
@@ -1200,7 +1202,7 @@
                 </div>
 
                 <div id="radicals-panel" class="panel-section collapsed" style="display: none;">
-                    <h4 id="radicals-title" class="panel-title">Radicals & Mnemonics</h4>
+                    <h4 id="radicals-title" class="panel-title collapsible">Radicals & Mnemonics</h4>
                     <div id="radicals-char-list" class="char-selector-grid"></div>
                     <div id="radicals-output"></div>
                 </div>
@@ -1240,12 +1242,12 @@
                 </div>
                 
                 <div id="statsOutput" class="panel-section collapsed">
-                    <h3 id="stats-title" class="panel-title">Character Stats</h3>
+                    <h3 id="stats-title" class="panel-title collapsible">Character Stats</h3>
                     <div id="stats-content"></div>
                 </div>
 
                 <div id="global-stats-output" class="panel-section collapsed">
-                     <h3 id="global-stats-title" class="panel-title">Global Character Stats</h3>
+                     <h3 id="global-stats-title" class="panel-title collapsible">Global Character Stats</h3>
                      <div id="global-stats-content">
                          <p class="info">Loading global stats...</p>
                      </div>

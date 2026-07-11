@@ -1192,16 +1192,19 @@ async function startListening() {
     // ================================================================
 
     wave.classList.add('show');
-    finalOutput.innerHTML = "";
-    statsContent.innerHTML = "";
-    downloadFab.style.display = 'none';
-    summaryFab.style.display = 'none';
-    playAllFab.style.display = 'none';
-    playCharListFab.style.display = 'none'; // Hide new button
-    stopFab.style.display = 'none';
     fullAudioChunks = [];
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Permission granted and recording is really starting — only NOW is it
+        // safe to clear the previous session's output. Doing this earlier wiped
+        // the user's work even when they denied the mic prompt (data loss).
+        finalOutput.innerHTML = "";
+        statsContent.innerHTML = "";
+        downloadFab.style.display = 'none';
+        summaryFab.style.display = 'none';
+        playAllFab.style.display = 'none';
+        playCharListFab.style.display = 'none'; // Hide new button
+        stopFab.style.display = 'none';
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioContext.createMediaStreamSource(stream);
         analyser = audioContext.createAnalyser();
@@ -1220,7 +1223,9 @@ async function startListening() {
         wave.classList.remove('show');
         if (micFab) micFab.classList.remove('recording');
         if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
-        finalOutput.innerHTML = `<p class="error">Couldn't start recording: ${escapeHtml(error.message || 'microphone unavailable')}.</p>`;
+        // Report via modal instead of overwriting finalOutput, so a denied
+        // prompt (or missing mic) doesn't destroy the current breakdown.
+        showModal('Microphone', `<p class="error">Couldn't start recording: ${escapeHtml(error.message || 'microphone unavailable')}.</p>`);
     }
 }
 function stopListening() {
@@ -1388,7 +1393,7 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
                         if (chineseCharRegex.test(char)) {
                             hasChineseChar = true;
                             currentCharacterStats[char] = (currentCharacterStats[char] || 0) + 1;
-                            charGridHtml += `<div class="char-unit"><div class="char" data-char="${char}" onclick="window.showStrokes('${char}')">${char}</div></div>`;
+                            charGridHtml += `<div class="char-unit"><div class="char" data-char="${char}" onclick="event.stopPropagation(); window.showStrokes('${char}')">${char}</div></div>`;
                         }
                     }
 
@@ -2284,7 +2289,6 @@ window.showStrokes = async (char) => {
     const pinyin = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(char, { toneType: 'symbol' }) : char;
     const fullDef = dictionary[char] || '(No definition found)';
     const shortDef = fullDef.split(';')[0].split('/')[0];
-    const metadata = await fetchCharacterMetadata(char);
 
     modalTitle.textContent = ''; // Remove the title
     
@@ -2329,6 +2333,9 @@ window.showStrokes = async (char) => {
     } else {
         // 2. Fallback to AI
         try {
+            // Fetch stroke/component metadata here (not before the modal opens) so
+            // the card appears instantly and only this slow branch waits on it.
+            const metadata = await fetchCharacterMetadata(char);
             const response = await fetch(`${backendUrl}/radical-info`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ char, pinyin, definition: shortDef, components: metadata.components, strokeCount: metadata.strokeCount })
@@ -3059,8 +3066,13 @@ function renderDeckManager() {
 }
 
 function renderDeckSummary(deck) {
-    if (!deck || deck.cards.length === 0) {
+    if (!deck) {
         deckSummary.innerHTML = '<p class="info">Create or choose a deck to begin.</p>';
+        return { total: 0, active: 0, due: 0, newCards: 0, suspended: 0, accuracy: null };
+    }
+    if (deck.cards.length === 0) {
+        // A deck IS selected, it's just empty — don't imply the user hasn't chosen one.
+        deckSummary.innerHTML = '<p class="info">This deck is empty. Select words in a session, then tap “Add Selected” to fill it.</p>';
         return { total: 0, active: 0, due: 0, newCards: 0, suspended: 0, accuracy: null };
     }
     const metrics = computeDeckMetrics(deck);
@@ -4300,6 +4312,11 @@ function toggleCategoryFilter(button) {
 
 const gameSession = { type: null, cards: [], index: 0, score: 0, total: 0 };
 let gamesModalEl = null;
+// Whether the games modal is showing the hub (picker) or an actual game, plus the
+// original argument openGamesHub was launched with — so the topbar button can go
+// back to the hub mid-game instead of dead-ending the whole flow.
+let gamesAtHub = true;
+let lastGamesCustomArg;
 
 // --- Confusion Graph: aggregate every game mistake so we can drill trouble spots ---
 // miss:  { "字": count }            — how often a target character was missed
@@ -4394,9 +4411,24 @@ function ensureGamesModal() {
             <div id="game-body"></div>
         </div>`;
     document.body.appendChild(gamesModalEl);
-    gamesModalEl.querySelector('#game-close-btn').addEventListener('click', closeGames);
+    gamesModalEl.querySelector('#game-close-btn').addEventListener('click', gameTopClose);
     gamesModalEl.addEventListener('click', (e) => { if (e.target === gamesModalEl) closeGames(); });
     return gamesModalEl;
+}
+
+// Topbar button: mid-game it steps back to the games hub; from the hub it closes.
+function gameTopClose() {
+    if (!gamesAtHub) {
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        openGamesHub(lastGamesCustomArg);
+        return;
+    }
+    closeGames();
+}
+
+function setGameCloseLabel(inGame) {
+    const btn = gamesModalEl && gamesModalEl.querySelector('#game-close-btn');
+    if (btn) btn.textContent = inGame ? '‹ Games' : 'Close';
 }
 
 function closeGames() {
@@ -4406,6 +4438,9 @@ function closeGames() {
 
 function openGamesHub(customCards) {
     ensureGamesModal();
+    gamesAtHub = true;
+    lastGamesCustomArg = customCards;
+    setGameCloseLabel(false);
     const cards = Array.isArray(customCards) ? customCards : getGamesSourceCards();
     const body = gamesModalEl.querySelector('#game-body');
     gamesModalEl.querySelector('#game-title').textContent = 'Games';
@@ -4465,6 +4500,8 @@ function openGamesHub(customCards) {
 
 function startGame(type, cards) {
     gameSession.type = type;
+    gamesAtHub = false;
+    setGameCloseLabel(true);
     if (type === 'match') return startMatchGame(cards);
     if (type === 'quiz') return startQuizGame(cards);
     if (type === 'listen') return startListenGame(cards);
@@ -5034,6 +5071,8 @@ function buildDrillCard(char) {
 }
 
 function showTroubleSpots() {
+    gamesAtHub = false;
+    setGameCloseLabel(true);
     const body = gamesModalEl.querySelector('#game-body');
     gamesModalEl.querySelector('#game-title').textContent = 'Trouble spots';
     const misses = Object.entries(confusionData.miss || {}).sort((a, b) => b[1] - a[1]);
@@ -5714,7 +5753,10 @@ function renderReaderParagraph(text, known) {
             ? `<span class="rd-word" data-word="${escapeHtml(s)}" onclick="window.readerWordInfo(this)">${rubies}</span>`
             : rubies;
     }
-    return `<p class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-play" onclick="window.readerPlayParagraph(this)" title="Read this paragraph aloud" aria-label="Read this paragraph aloud">🔊</button><button class="rd-translate" onclick="window.readerTranslate(this)" title="Show English translation" aria-label="Show English translation">译</button><button class="rd-register" onclick="window.readerRegister(this)" title="Formal / casual / slang variants" aria-label="Register variants">语</button><span class="rd-en"></span><div class="rd-registers"></div></p>`;
+    // NB: this wrapper is a <div>, not a <p>: it contains a block-level
+    // <div class="rd-registers">, which the parser would hoist out of a <p>
+    // (breaking readerRegister's para.querySelector('.rd-registers') lookup).
+    return `<div class="rd-para" data-zh="${escapeHtml(text)}">${inner} <button class="rd-play" onclick="window.readerPlayParagraph(this)" title="Read this paragraph aloud" aria-label="Read this paragraph aloud">🔊</button><button class="rd-translate" onclick="window.readerTranslate(this)" title="Show English translation" aria-label="Show English translation">译</button><button class="rd-register" onclick="window.readerRegister(this)" title="Formal / casual / slang variants" aria-label="Register variants">语</button><span class="rd-en"></span><div class="rd-registers"></div></div>`;
 }
 
 // Register Lens: show the sentence in casual / formal / internet-slang forms.
