@@ -1078,7 +1078,7 @@
         /* ======== KARAOKE ======== */
         #karaoke-overlay { position: fixed; inset: 0; z-index: 4000; background: var(--bg-color); display: none; flex-direction: column; }
         #karaoke-overlay.active { display: flex; }
-        .kara-topbar { position: sticky; top: 0; display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; background: var(--glass-bg-opaque); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--border-hairline); }
+        .kara-topbar { position: sticky; top: 0; display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; padding-top: calc(0.6rem + env(safe-area-inset-top)); background: var(--glass-bg-opaque); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--border-hairline); }
         .kara-topbar h3 { margin: 0; font-size: 1rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #kara-search-view { flex: 1; min-height: 0; flex-direction: column; }
         .kara-search { display: flex; gap: 0.5rem; padding: 1rem clamp(1rem,5vw,3rem) 0.5rem; max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; flex-shrink: 0; }
