@@ -994,7 +994,7 @@
         #reader-content { --rd-font-scale: 1; }
         .rd-para { position: relative; font-size: calc(1.5rem * var(--rd-font-scale, 1)); line-height: 2.6; margin: 0 0 1.5rem; }
         .rd-img { display: block; max-width: 100%; height: auto; margin: 1.75rem auto; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
-        ruby.rd-char { cursor: pointer; border-radius: 5px; padding: 0 1px; transition: background 0.15s; }
+        ruby.rd-char { cursor: pointer; border-radius: 5px; padding: 0 3px; transition: background 0.15s; }
         ruby.rd-char rt { font-size: 0.46em; opacity: 0.8; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600; }
         ruby.rd-char:hover { background: var(--accent-soft); }
         ruby.rd-char.new-char { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent-2) 55%, transparent); }
@@ -1013,10 +1013,10 @@
         .rd-heat-swatch.rd-heat-2 { background: rgba(255, 138, 30, 0.7); }
         .rd-heat-swatch.rd-heat-3 { background: rgba(255, 74, 74, 0.8); }
         .rd-heat-lbl { margin-right: 0.5rem; }
-        .rd-translate { display: inline-block; margin-left: 0.4rem; font-size: 0.85rem; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; font-family: -apple-system, sans-serif; }
+        .rd-translate { display: inline-flex; align-items: center; min-height: 32px; margin-left: 0.4rem; font-size: 0.85rem; padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; font-family: -apple-system, sans-serif; }
         .rd-translate:hover { border-color: var(--accent-color); color: var(--accent-color); }
         .rd-en { display: block; font-size: 1rem; color: var(--text-secondary); font-style: italic; line-height: 1.5; margin-top: 0.35rem; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-        .rd-register { display: inline-block; margin-left: 0.3rem; font-size: 0.85rem; padding: 0.15rem 0.55rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; font-family: "KaiTi","STKaiti","楷体",serif; }
+        .rd-register { display: inline-flex; align-items: center; min-height: 32px; margin-left: 0.3rem; font-size: 0.85rem; padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); color: var(--text-secondary); cursor: pointer; vertical-align: middle; font-family: "KaiTi","STKaiti","楷体",serif; }
         .rd-register:hover { border-color: var(--accent-2); color: var(--accent-2); }
         .rd-registers { display: block; margin-top: 0.5rem; }
         .rd-registers:empty { display: none; }
@@ -1029,7 +1029,7 @@
         .char-info-def { color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.5; }
         .char-info-actions { display: flex; gap: 0.5rem; justify-content: center; }
         /* Inline hear-it button + word component chips in the reader cards */
-        .reader-play-inline { border: 1px solid var(--border-hairline); background: var(--input-bg); border-radius: 999px; padding: 0.1rem 0.55rem; font-size: 0.95rem; cursor: pointer; vertical-align: middle; margin-left: 0.4rem; }
+        .reader-play-inline { display: inline-flex; align-items: center; min-height: 32px; border: 1px solid var(--border-hairline); background: var(--input-bg); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.95rem; cursor: pointer; vertical-align: middle; margin-left: 0.4rem; }
         .reader-play-inline:hover { border-color: var(--accent-color); }
         .reader-char-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; margin: 0 0 1rem; }
         .reader-char-chip { font-family: "KaiTi","STKaiti","楷体",serif; font-size: 1.5rem; line-height: 1; padding: 0.35rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--card-bg); cursor: pointer; }
@@ -1037,7 +1037,7 @@
         /* Word grouping: a multi-character word is one hover/tap target */
         .rd-word { border-radius: 6px; padding: 0 1px; transition: background 0.15s; cursor: pointer; }
         .rd-word:hover { background: color-mix(in srgb, var(--accent-2) 12%, transparent); }
-        .rd-play { display: inline-block; margin-left: 0.4rem; font-size: 0.85rem; padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); cursor: pointer; vertical-align: middle; }
+        .rd-play { display: inline-flex; align-items: center; min-height: 32px; margin-left: 0.4rem; font-size: 0.85rem; padding: 0.3rem 0.65rem; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--input-bg); cursor: pointer; vertical-align: middle; }
         .rd-play:hover { border-color: var(--accent-color); }
         .rd-para.speaking { background: color-mix(in srgb, var(--accent-color) 9%, transparent); border-radius: 10px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent-color) 9%, transparent); }
         .reader-close-btn { font-size: 1.05rem !important; }
