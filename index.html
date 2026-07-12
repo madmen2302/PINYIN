@@ -185,6 +185,10 @@
         .header-icon-btn:hover {
             background-color: var(--hover-bg);
         }
+        /* First-run cue for the Tools drawer (see displaySession in app.js). */
+        @keyframes hintPulse { 0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); } 50% { box-shadow: 0 0 0 9px transparent; } }
+        #mobile-tools-toggle.hint-pulse { animation: hintPulse 1s ease-in-out 3; color: var(--accent-color); }
+        @media (prefers-reduced-motion: reduce) { #mobile-tools-toggle.hint-pulse { animation: none; } }
 
         .main-container { display: flex; gap: 1.5rem; width: 100%; height: 100vh; position: relative; padding-top: calc(50px + env(safe-area-inset-top)); box-sizing: border-box; }
 

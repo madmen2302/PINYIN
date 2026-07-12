@@ -1752,6 +1752,18 @@ function displaySession(sessionId) {
     flashcardGameBtn.style.display = 'flex'; // === NEW ===
     selectAllCharsBtn.style.display = 'flex'; // === NEW ===
     radicalsBtn.style.display = 'flex'; // === NEW ===
+
+    // First-run cue: on a phone, every post-process action (Play All, Summary,
+    // Flashcards, HSK…) lives behind the ⚡ Tools drawer, which isn't obvious.
+    // Pulse its header icon once, ever, so the drawer gets discovered.
+    if (viewportQuery.matches && !localStorage.getItem('toolsHintShown')) {
+        const toolsBtn = document.getElementById('mobile-tools-toggle');
+        if (toolsBtn) {
+            toolsBtn.classList.add('hint-pulse');
+            localStorage.setItem('toolsHintShown', '1');
+            setTimeout(() => toolsBtn.classList.remove('hint-pulse'), 4000);
+        }
+    }
 }
 
 
