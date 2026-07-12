@@ -1308,6 +1308,36 @@ if (resetPanelsBtn) {
     resetPanelsBtn.addEventListener('click', resetPanelWidths);
 }
 
+// === Tools panel: hide sections whose content is entirely hidden ===
+// Most Tools buttons start display:none and are revealed only once text is
+// processed; without this, their section titles render as empty headings.
+function updateToolsSectionVisibility() {
+    document.querySelectorAll('#right-panel-content > .panel-section').forEach(section => {
+        if (section.id === 'radicals-panel') return; // manages its own inline display
+        const content = Array.from(section.children)
+            .filter(el => !el.classList.contains('panel-title'));
+        const shouldHide = content.length > 0 &&
+            content.every(el => getComputedStyle(el).display === 'none');
+        if (section.hidden !== shouldHide) section.hidden = shouldHide; // write only on change
+    });
+}
+
+const rightPanelContent = document.getElementById('right-panel-content');
+if (rightPanelContent) {
+    let sectionVisPending = false;
+    new MutationObserver(() => {
+        if (sectionVisPending) return;
+        sectionVisPending = true;
+        requestAnimationFrame(() => {
+            sectionVisPending = false;
+            updateToolsSectionVisibility();
+        });
+    }).observe(rightPanelContent, {
+        subtree: true, attributes: true, attributeFilter: ['style', 'class']
+    });
+    updateToolsSectionVisibility();
+}
+
 // === NEW: Session Edit Modal Listeners ===
 if (sessionEditModal) {
     sessionEditCancelBtn.addEventListener('click', () => sessionEditModal.classList.remove('active'));
@@ -2794,7 +2824,7 @@ function downloadOutput() {
         body { height: auto; overflow: auto; } .main-container { display: block; }
         .glass-card { height: auto; max-width: 900px; margin: 2rem auto; }
         #finalOutput, #statsOutput, #global-stats-output { max-height: none; overflow-y: visible; }
-        #top-controls-wrapper, #history-panel, #right-panel, #controls-toggle-btn, #dark-mode-toggle, #history-toggle-btn, #right-panel-toggle-btn, #enhance-controls, .top-right-controls, #center-toggle-controls,
+        #top-controls-wrapper, #history-panel, #right-panel, #controls-toggle-btn, #dark-mode-toggle, #history-toggle-btn, #right-panel-toggle-btn, .top-right-controls, #center-toggle-controls,
         #fab-container { display: none !important; }
         #statsOutput, #global-stats-output { height: auto; } .header-icon-btn { display: none; }
         #stats-title, #global-stats-title { text-align: center; font-size: 1.1rem; padding: 0.5rem; margin: 0; }
@@ -2936,7 +2966,7 @@ function downloadAllOutput() {
     const downloadSpecificStyles = `
         body { height: auto; overflow: auto; } .main-container { display: block; }
         #finalOutput, #statsOutput, #global-stats-output { max-height: none; overflow-y: visible; }
-        #top-controls-wrapper, #history-panel, #right-panel, #controls-toggle-btn, #dark-mode-toggle, #history-toggle-btn, #right-panel-toggle-btn, #enhance-controls, .top-right-controls, #center-toggle-controls,
+        #top-controls-wrapper, #history-panel, #right-panel, #controls-toggle-btn, #dark-mode-toggle, #history-toggle-btn, #right-panel-toggle-btn, .top-right-controls, #center-toggle-controls,
         #fab-container { display: none !important; }
         .glass-card { height: auto; max-width: 900px; margin: 2rem auto; } .header-icon-btn { display: none; }
         #statsOutput, #global-stats-output { height: auto; }

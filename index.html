@@ -414,6 +414,10 @@
         .panel-title.collapsible::after { content: '🔼'; font-size: 0.8em; transition: transform 0.3s; }
         .panel-section.collapsed .panel-title.collapsible::after { transform: rotate(180deg); }
         .panel-section.collapsed > *:not(.panel-title) { max-height: 0 !important; opacity: 0; overflow: hidden; margin: 0; padding: 0; }
+        /* Sections auto-hidden by updateToolsSectionVisibility() (app.js) — the
+           !important guards against the flex rule below (or any future one)
+           overriding the UA's [hidden] default. */
+        #right-panel-content .panel-section[hidden] { display: none !important; }
 
         .panel-btn {
             background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 14px;
@@ -422,8 +426,8 @@
         }
         .panel-btn:hover { transform: translateY(-2px); border-color: var(--accent-color); color: var(--accent-color); box-shadow: var(--shadow-md); }
         .panel-btn svg { width: 20px; height: 20px; }
-        
-        #session-controls, #flashcard-controls, #radicals-controls { display: flex; flex-direction: column; gap: 0.5rem; }
+
+        #session-controls, #flashcard-controls { display: flex; flex-direction: column; gap: 0.5rem; }
 
         /* Radicals */
         .char-selector-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; background: var(--input-bg); padding: 0.5rem; border-radius: 12px; margin-bottom: 1rem; }
@@ -793,6 +797,21 @@
             #right-panel .panel-section { margin-top: 0.65rem; padding-top: 0.65rem; }
             #right-panel .panel-title { margin-bottom: 0.5rem; }
             #right-panel .panel-btn { margin-bottom: 0.4rem; padding: 0.65rem 0.8rem; }
+
+            /* Desktop-only control: resets drag-resize widths that cannot exist
+               on phones (drag handles are display:none above; panels are fixed
+               85vw), so it's a no-op button here. */
+            #reset-panels-btn { display: none; }
+
+            /* Quiet drawer caption instead of a second header row — the fixed
+               main header already shows the Tools/History trigger the user
+               just tapped, so this row only needs to name the drawer. */
+            #history-panel h3, #right-panel h3 {
+                font-size: 1rem;
+                font-weight: 600;
+                color: var(--text-secondary);
+                margin: 0 0 0.5rem 0;
+            }
 
             /* Hide desktop-only center toggle, show mobile one */
             #center-toggle-controls { display: none; }
@@ -1315,13 +1334,12 @@
         
         <div id="right-panel" class="collapsed">
             <h3>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 Tools
                 <button id="right-panel-close" class="panel-close-btn" aria-label="Close tools panel">✕</button>
             </h3>
             <div id="right-panel-content">
                 <div id="session-controls" class="panel-section">
-                    <h4 class="panel-title">Output</h4>
+                    <h4 class="panel-title">This Text</h4>
                     <button id="summary-fab" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 15v4H5v-4h14m1-2H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2zM12 3L4 9v4h16V9l-8-6z"></path></svg>
                         <span>Summary</span>
@@ -1338,8 +1356,10 @@
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"></path></svg>
                         <span>Play List</span>
                     </button>
+                    <button id="enhance-btn" class="panel-btn" style="display: none;">Enhance Definitions (AI)</button>
+                    <button id="revert-btn" class="panel-btn" style="display: none;">Revert to Dictionary</button>
                 </div>
-                
+
                 <div id="flashcard-controls" class="panel-section">
                     <h4 class="panel-title">Practice</h4>
                     <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
@@ -1354,6 +1374,16 @@
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M16.5 9l-1.5-1.5-3 3-3-3L7.5 9l3 3-3 3 1.5 1.5 3-3 3 3 1.5-1.5-3-3 3-3zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path></svg>
                         <span>Game Mode</span>
                     </button>
+                    <button id="radicals-btn" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.6 6.3c-.4-.4-1-.4-1.4 0L18 8.6V7c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v1.6L9.8 6.3c-.4-.4-1-.4-1.4 0l-7 7c-.4.4-.4 1 0 1.4l7 7c.4.4 1 .4 1.4 0L12 19.4V21c0 1.1.9 2 2 2h2c1.1 0 2-.9 2-2v-1.6l2.2 2.2c.4.4 1 .4 1.4 0l7-7c.4-.4.4-1 0-1.4l-7-7zM16 9c-1.7 0-3-1.3-3-3s1.3-3 3-3 3 1.3 3 3-1.3 3-3 3z"></path></svg>
+                        <span>Radicals & Mnemonics</span>
+                    </button>
+                </div>
+
+                <div id="radicals-panel" class="panel-section collapsed" style="display: none;">
+                    <h4 id="radicals-title" class="panel-title collapsible">Radicals & Mnemonics</h4>
+                    <div id="radicals-char-list" class="char-selector-grid"></div>
+                    <div id="radicals-output"></div>
                 </div>
 
                 <div id="voice-tutor-controls" class="panel-section">
@@ -1368,30 +1398,8 @@
                     </button>
                 </div>
 
-                <div id="radicals-controls" class="panel-section">
-                    <h4 class="panel-title">Reference</h4>
-                    <button id="radicals-btn" class="panel-btn" style="display: none;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.6 6.3c-.4-.4-1-.4-1.4 0L18 8.6V7c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v1.6L9.8 6.3c-.4-.4-1-.4-1.4 0l-7 7c-.4.4-.4 1 0 1.4l7 7c.4.4 1 .4 1.4 0L12 19.4V21c0 1.1.9 2 2 2h2c1.1 0 2-.9 2-2v-1.6l2.2 2.2c.4.4 1 .4 1.4 0l7-7c.4-.4.4-1 0-1.4l-7-7zM16 9c-1.7 0-3-1.3-3-3s1.3-3 3-3 3 1.3 3 3-1.3 3-3 3z"></path></svg>
-                        <span>Radicals & Mnemonics</span>
-                    </button>
-                </div>
-
-                <div id="radicals-panel" class="panel-section collapsed" style="display: none;">
-                    <h4 id="radicals-title" class="panel-title collapsible">Radicals & Mnemonics</h4>
-                    <div id="radicals-char-list" class="char-selector-grid"></div>
-                    <div id="radicals-output"></div>
-                </div>
-
-                <div id="layout-controls" class="panel-section">
-                    <h4 class="panel-title">Layout</h4>
-                    <button id="reset-panels-btn" class="panel-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
-                        <span>Reset Panel Widths</span>
-                    </button>
-                </div>
-
                 <div class="panel-section">
-                    <h4 class="panel-title">Display Options</h4>
+                    <h4 class="panel-title">Display</h4>
                     <div class="settings-group">
                         <div class="setting-item">
                             <label for="hide-play-buttons-toggle">Hide Play Buttons</label>
@@ -1408,21 +1416,19 @@
                             </label>
                         </div>
                     </div>
+                    <button id="reset-panels-btn" class="panel-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
+                        <span>Reset Panel Widths</span>
+                    </button>
                 </div>
 
-                <div id="enhance-controls" class="panel-section">
-                    <h4 class="panel-title">Data</h4>
-                    <button id="enhance-btn" class="panel-btn" style="display: none;">Enhance Definitions (AI)</button>
-                    <button id="revert-btn" class="panel-btn" style="display: none; background: #6c757d; color: white;">Revert to Dictionary</button>
-                </div>
-                
                 <div id="statsOutput" class="panel-section collapsed">
-                    <h3 id="stats-title" class="panel-title collapsible">Character Stats</h3>
+                    <h3 id="stats-title" class="panel-title collapsible">Text Stats</h3>
                     <div id="stats-content"></div>
                 </div>
 
                 <div id="global-stats-output" class="panel-section collapsed">
-                     <h3 id="global-stats-title" class="panel-title collapsible">Global Character Stats</h3>
+                     <h3 id="global-stats-title" class="panel-title collapsible">All-Time Stats</h3>
                      <div id="global-stats-content">
                          <p class="info">Loading global stats...</p>
                      </div>
