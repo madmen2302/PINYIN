@@ -926,8 +926,8 @@ app.post('/resolve-track', async (req, res) => {
             const html = await r.text();
             const og = html.match(/<meta property="og:title" content="([^"]+)"/i);
             const raw = og ? og[1] : '';
-            // Apple Music og:title usually reads "Song by Artist".
-            const m = raw.match(/^(.+?)\s+by\s+(.+)$/i);
+            // Apple Music og:title usually reads "Song by Artist on Apple Music".
+            const m = raw.match(/^(.+?)\s+by\s+(.+?)(?:\s+on\s+Apple\s+Music)?$/i);
             if (m) { title = m[1]; artist = m[2]; } else { title = raw; }
         } else {
             // Generic fallback (QQ Music and anything else with an og:title/<title>).
