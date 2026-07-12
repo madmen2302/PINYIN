@@ -1152,6 +1152,12 @@
         }
 
         @media (max-width: 520px) { .quiz-prompt { font-size: 3.5rem; } .quiz-options { grid-template-columns: 1fr; } }
+        /* Narrow phones: the character-info and category grids are set to two
+           columns via inline style, so !important is required to collapse them
+           to a single, comfortably-wide column. */
+        @media (max-width: 520px) {
+            #char-info-modal-body, #session-categories-list { grid-template-columns: 1fr !important; }
+        }
     </style>
 </head>
 <body>
