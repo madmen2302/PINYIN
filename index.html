@@ -1141,7 +1141,7 @@
         .error { color: var(--danger-color); }
 
         /* Roomy, scrollable modal cards so tall panels never overflow small screens */
-        #modal-content, .modal-content { max-height: 90vh; overflow-y: auto; }
+        #modal-content, .modal-content { max-height: 90vh; overflow-y: auto; box-sizing: border-box; }
 
         /* Entrance motion */
         @keyframes pop-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
