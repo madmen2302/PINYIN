@@ -7,7 +7,11 @@ const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fi
 const chevronDownIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>`;
 const chevronUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>`;
 const historyIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg>`;
-const toolsIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84 c-0.24,0-0.44,0.17-0.48,0.41L9.2,5.77C8.61,6.01,8.08,6.33,7.58,6.71L5.19,5.75C4.97,5.68,4.72,5.75,4.6,5.97L2.68,9.29 c-0.11,0.2-0.06,0.47,0.12,0.61l2.03,1.58C4.78,11.7,4.76,12,4.76,12.3c0,0.3,0.02,0.6,0.06,0.9l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.04,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.48-0.41l0.36-2.54c0.59-0.24,1.12-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0.01,0.59-0.22l1.92-3.32c0.11-0.2,0.06-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>`;
+// A filled lightning-bolt (not a cog) — the Tools drawer's own heading uses
+// this exact path (as an outline) for the same reason: sitting next to the
+// ⚙️ Settings button, a second gear-shaped icon recreated the very "which
+// gear?" confusion this header redesign set out to fix.
+const toolsIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>`;
 const textInputIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>`;
 
 // ======== ELEMENTS ========
@@ -709,6 +713,18 @@ function initSettingsPopover() {
         row.appendChild(micFab);
         ttsControls.appendChild(row);
     }
+    // Dark mode is a set-once preference, not a per-session action — it
+    // doesn't earn permanent header real estate. Move it in here alongside
+    // mic/auto-save (mirrors the pattern above); listener stays untouched.
+    if (darkModeToggle) {
+        const row = document.createElement('div');
+        row.className = 'tts-group settings-popover-row';
+        const lbl = document.createElement('label');
+        lbl.textContent = 'Dark mode:';
+        row.appendChild(lbl);
+        row.appendChild(darkModeToggle);
+        ttsControls.appendChild(row);
+    }
     if (saveSessionToggle) {
         const row = document.createElement('div');
         row.className = 'tts-group settings-popover-row';
@@ -1189,21 +1205,6 @@ function initializeToggles() {
     // Add the text input toggle button to the left group.
     if (controlsToggleBtn) leftGroup.appendChild(controlsToggleBtn);
 
-    // Move existing top-right controls (like dark mode) into the left group
-    const topRights = document.querySelector('.top-right-controls');
-    if (topRights) {
-        // Convert .top-right-btn to .header-icon-btn for consistency
-        topRights.querySelectorAll('.top-right-btn').forEach(btn => {
-            btn.classList.remove('top-right-btn');
-            btn.classList.add('header-icon-btn');
-        });
-        // Move all children of top-right-controls into the new leftGroup
-        while (topRights.firstChild) {
-            leftGroup.appendChild(topRights.firstChild);
-        }
-        topRights.style.display = 'none'; // Hide the old container
-    }
-
     const mobileHistoryBtn = document.createElement('button');
     mobileHistoryBtn.id = 'mobile-history-toggle';
     mobileHistoryBtn.className = 'header-icon-btn';
@@ -1226,8 +1227,19 @@ function initializeToggles() {
     mainHeader.appendChild(centerGroup);
 
     // --- Right Group ---
+    // The Tools drawer slides in from the right, so its trigger anchors this
+    // edge. Stop (conditional) and Settings sit inboard of it, in the order
+    // they already existed in the DOM — no listeners are recreated, only
+    // moved, so click handlers already wired to these elements keep working.
     const rightGroup = document.createElement('div');
     rightGroup.className = 'header-group right';
+    ['stop-fab', 'voice-settings-toggle'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.classList.remove('top-right-btn');
+        btn.classList.add('header-icon-btn');
+        rightGroup.appendChild(btn);
+    });
 
     const mobileToolsBtn = document.createElement('button');
     mobileToolsBtn.id = 'mobile-tools-toggle';
@@ -1237,6 +1249,10 @@ function initializeToggles() {
     mobileToolsBtn.addEventListener('click', () => toggleRightPanel());
     // Add the tools button to the right group
     rightGroup.appendChild(mobileToolsBtn);
+
+    // The old wrapper now holds only empty shell divs (mic/dark-mode/auto-save
+    // already relocated into the settings popover) — remove it outright.
+    document.querySelector('.top-right-controls')?.remove();
     mainHeader.appendChild(rightGroup);
 
     mainHeader.style.display = 'flex'; // Make the header visible

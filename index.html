@@ -135,7 +135,7 @@
             display: none; /* Initially hidden, JS will show it */
             justify-content: space-between;
             align-items: center;
-            padding: 0 1rem;
+            padding: 0 calc(0.75rem + env(safe-area-inset-right)) 0 calc(0.75rem + env(safe-area-inset-left));
             padding-top: env(safe-area-inset-top); /* clear the notch */
             height: calc(50px + env(safe-area-inset-top));
             box-sizing: border-box;
@@ -154,17 +154,23 @@
             gap: 0.5rem;
         }
         .header-group.left { justify-content: flex-start; }
-        .header-group.center { flex: 1; justify-content: center; }
-        .header-group.right { justify-content: flex-end; flex-shrink: 0; }
+        /* min-width: 0 lets the wordmark shrink below its content size instead
+           of overflowing the header and eating the right-edge padding — that
+           overflow was why the Tools button used to sit 1px from the screen
+           edge. See docs/HEADER-REDESIGN.md. */
+        .header-group.center { flex: 1 1 0; min-width: 0; justify-content: center; overflow: hidden; }
+        .header-group.left, .header-group.right { flex: 0 0 auto; }
+        .header-group.right { justify-content: flex-end; }
         #header-wordmark { font-weight: 700; font-size: 0.95rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        /* Narrow phones: tighten so the row of header icons never runs past the
-           right edge (keeps ~40px targets — still comfortably tappable). */
+        /* Narrow phones: with only 4-5 buttons (down from 6) full 44px HIG
+           targets fit even at 320px, so the old min-width:40px squeeze is gone
+           — just tighten the gutters/gaps and shrink the wordmark. */
         @media (max-width: 400px) {
-            .main-header { padding-left: 0.5rem; padding-right: 0.5rem; }
-            .header-group { gap: 0.15rem; }
-            .header-icon-btn, #controls-toggle-btn { min-width: 40px; padding: 0.35rem; }
-            /* Below ~360px keep the wordmark to the Chinese mark only so the
-               row of icons never gets pushed off-screen. */
+            .main-header {
+                padding-left: calc(0.5rem + env(safe-area-inset-left));
+                padding-right: calc(0.75rem + env(safe-area-inset-right));
+            }
+            .header-group { gap: 0.25rem; }
             #header-wordmark { font-size: 0.85rem; }
         }
         @media (max-width: 359px) { #header-wordmark { display: none; } }
@@ -332,6 +338,9 @@
         .settings-popover-row label { text-align: left !important; }
         /* The mic (voice-input) button lives in this popover — give it a full tap target. */
         .settings-popover-row #mic-fab { min-width: 44px; min-height: 44px; }
+        /* Dark mode moved here from the header (see docs/HEADER-REDESIGN.md) —
+           same full tap-target treatment. */
+        .settings-popover-row #dark-mode-toggle { min-width: 44px; min-height: 44px; }
         .settings-popover-autosave { display: flex; align-items: center; gap: 0.6rem; }
 
         #finalOutput { text-align: left; background: transparent; padding: 0; overflow-y: auto; flex-grow: 1; scroll-behavior: smooth; margin-top: 1rem; }
