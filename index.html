@@ -501,12 +501,18 @@
         #deck-summary { display: grid; grid-template-columns: 1fr; gap: 0.8rem; }
         
         /* Deck Details */
-        #deck-card-table { background: var(--panel-bg); border-radius: 12px; padding: 0.5rem; overflow-y: auto; max-height: 220px; }
-        .deck-card-row { display: grid; grid-template-columns: 60px 1fr 80px 100px; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--border-color); }
+        #deck-card-table { background: var(--panel-bg); border-radius: 12px; padding: 0.5rem; overflow-y: auto; max-height: 40vh; }
+        .deck-card-row { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 0.5rem; padding: 0.4rem 0.25rem; border-bottom: 1px solid var(--border-hairline, var(--border-color)); }
         .deck-card-row:last-child { border-bottom: none; }
+        .deck-card-row.suspended { opacity: 0.5; }
         .deck-card-char { font-size: 1.5rem; text-align: center; font-weight: bold; font-family: "KaiTi", "楷体", serif; }
-        .deck-card-actions { display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-end; }
-        .deck-card-actions button { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--card-bg); cursor: pointer; }
+        .deck-card-info { min-width: 0; }
+        .deck-card-pinyin { color: var(--accent-color); font-size: 0.9rem; }
+        .deck-card-meaning { font-size: 0.82rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .deck-card-actions { display: flex; flex-direction: row; align-items: center; gap: 0.3rem; }
+        .deck-card-due { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; margin-right: 0.15rem; }
+        .card-toggle-btn, .card-reset-btn { width: 40px; height: 40px; flex-shrink: 0; font-size: 1rem; padding: 0; border-radius: 10px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+        .card-toggle-btn:hover, .card-reset-btn:hover { border-color: var(--accent-color); color: var(--accent-color); }
 
         /* Flashcard Viewer */
         #flashcard-viewer { background: transparent; border-radius: 18px; padding: 0; display: none; flex-direction: column; height: 100%; }
@@ -755,12 +761,6 @@
             #center-toggle-controls { display: none; }
             .header-group.center { display: flex; }
 
-            /* VIS-01 stopgap: flashcard modal is unusable at mobile widths with
-               the fixed 3-column grid; stack panels and let them scroll. */
-            #flashcard-main { grid-template-columns: 1fr; overflow-y: auto; }
-            #deck-card-table { max-height: 160px; }
-            .deck-card-row { grid-template-columns: 48px 1fr auto; }
-            .deck-card-actions { flex-direction: row; flex-wrap: wrap; }
         }
 
         /* ================================================================

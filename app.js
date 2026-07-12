@@ -3468,15 +3468,14 @@ function renderDeckCardTable(deck) {
         return `
             <div class="deck-card-row ${card.suspended ? 'suspended' : ''}" data-card-id="${card.id}">
                 <div class="deck-card-char">${card.char}</div>
-                <div>
-                    <div>${card.pinyin || '&nbsp;'}</div>
-                    <div class="deck-card-meaning">${card.def || ''}</div>
+                <div class="deck-card-info">
+                    <div class="deck-card-pinyin">${escapeHtml(card.pinyin || '')}</div>
+                    <div class="deck-card-meaning">${escapeHtml(card.def || '')}</div>
                 </div>
-                <div class="deck-card-score">${accuracy === null ? '—' : `${accuracy}%`}</div>
                 <div class="deck-card-actions">
-                    <span class="deck-card-due">${dueLabel}</span>
-                    <button class="card-toggle-btn" data-card-id="${card.id}">${card.suspended ? 'Resume' : 'Pause'}</button>
-                    <button class="card-reset-btn" data-card-id="${card.id}">Reset</button>
+                    <span class="deck-card-due">${card.suspended ? 'Paused' : dueLabel}${accuracy === null ? '' : ` · ${accuracy}%`}</span>
+                    <button class="card-toggle-btn" data-card-id="${card.id}" aria-label="${card.suspended ? 'Resume' : 'Pause'} ${escapeHtml(card.char)}" title="${card.suspended ? 'Resume' : 'Pause'}">${card.suspended ? '▶' : '⏸'}</button>
+                    <button class="card-reset-btn" data-card-id="${card.id}" aria-label="Reset progress for ${escapeHtml(card.char)}" title="Reset progress">↺</button>
                 </div>
             </div>
         `;
