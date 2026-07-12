@@ -461,7 +461,7 @@
         .fc-deck-card { position: relative; background: var(--card-bg); border: 1px solid var(--border-hairline, var(--border-color)); border-radius: var(--radius-md, 16px); box-shadow: var(--shadow-sm); padding: 1rem; display: flex; flex-direction: column; gap: 0.7rem; cursor: pointer; transition: transform 0.25s var(--ease-spring, ease), box-shadow 0.25s ease; text-align: left; }
         .fc-deck-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
         .fc-deck-card.active { border-color: var(--accent-color); }
-        .fc-deck-name { font-size: 1.1rem; font-weight: 700; color: var(--text-main); padding-right: 2.2rem; word-break: break-word; }
+        .fc-deck-name { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main); padding-right: 2.2rem; word-break: break-word; }
         .fc-deck-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
         .fc-chip { border-radius: 999px; font-size: 0.75rem; padding: 0.15rem 0.6rem; font-weight: 600; }
         .fc-chip-due { color: var(--danger-color); background: color-mix(in srgb, var(--danger-color) 14%, transparent); }
@@ -1401,7 +1401,7 @@
                 <h3>Flashcards</h3>
                 <button id="flashcard-close-btn" aria-label="Close flashcards">×</button>
             </div>
-            <div id="fc-summary" style="display:none;"></div>
+            <div id="fc-summary" style="display:none;" role="dialog" aria-modal="true" aria-label="Session summary" aria-live="polite"></div>
             <div id="flashcard-main">
                 <section id="fc-home" class="fc-screen">
                   <div class="fc-home-scroll">
@@ -1477,14 +1477,14 @@
                 </section><!-- /fc-home -->
 
                 <section id="flashcard-viewer" style="display: none; height: 100%; flex-direction: column;">
-                    <div id="fc-progress"><div class="fc-progress-fill"></div></div>
+                    <div id="fc-progress" role="progressbar" aria-label="Session progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fc-progress-fill"></div></div>
                     <div id="flashcard-progress" style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding-bottom: 0.5rem;">
                         <span id="flashcard-counter">1 / 1</span>
-                        <span id="fc-streak-chip" style="display: none;"></span>
+                        <span id="fc-streak-chip" style="display: none;" aria-live="polite"></span>
                         <button id="say-first-toggle" type="button" style="display: none;" title="Require you to say the card aloud before the answer is revealed">🎤 Say-it-first: Off</button>
                         <span id="flashcard-due-indicator"></span>
                     </div>
-                    <div id="flashcard">
+                    <div id="flashcard" role="button" tabindex="0" aria-label="Flashcard, activate to flip" aria-pressed="false">
                         <div class="flashcard-inner">
                             <div id="flashcard-front" class="flashcard-face"></div>
                             <div id="flashcard-back" class="flashcard-face"></div>
@@ -1506,11 +1506,11 @@
                     <div id="flashcard-test-controls">
                         <div class="fc-grade-row">
                             <div class="fc-grade-col">
-                                <button id="test-wrong-btn" class="danger fc-grade-btn">Again</button>
+                                <button id="test-wrong-btn" class="danger fc-grade-btn" aria-keyshortcuts="ArrowLeft">Again</button>
                                 <kbd class="fc-kbd">←</kbd>
                             </div>
                             <div class="fc-grade-col">
-                                <button id="test-right-btn" class="success fc-grade-btn">Got it</button>
+                                <button id="test-right-btn" class="success fc-grade-btn" aria-keyshortcuts="ArrowRight">Got it</button>
                                 <kbd class="fc-kbd">→</kbd>
                             </div>
                         </div>

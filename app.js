@@ -832,6 +832,7 @@ let fcSuppressClick = false;
 function fcFlip() {
     if (sayFirstFlipLocked()) { pulseSayFirstBar(); return; }
     flashcardEl.classList.toggle('flipped');
+    flashcardEl.setAttribute('aria-pressed', flashcardEl.classList.contains('flipped') ? 'true' : 'false');
 }
 function fcReviewActive() {
     return flashcardModal && flashcardModal.style.display !== 'none'
@@ -3282,8 +3283,8 @@ function renderFcDeckGrid() {
         ].join('');
         const active = d.id === flashcardStore.activeDeckId ? ' active' : '';
         return `<article class="fc-deck-card${active}" data-id="${escapeHtml(d.id)}">
-            <button class="fc-deck-more-btn" aria-label="Deck options" onclick="fcOpenDeckDetails('${d.id}', event)">⋯</button>
-            <div class="fc-deck-name">${escapeHtml(d.name)}</div>
+            <button class="fc-deck-more-btn" aria-label="Options for ${escapeHtml(d.name)}" onclick="fcOpenDeckDetails('${d.id}', event)">⋯</button>
+            <h3 class="fc-deck-name">${escapeHtml(d.name)}</h3>
             <div class="fc-deck-chips">${chips}</div>
             <div class="fc-deck-bar"><div class="fc-deck-bar-fill" style="width:${learned}%"></div></div>
             <button class="fc-deck-study-btn modal-btn primary" onclick="fcStartSmartSession('${d.id}', event)">${escapeHtml(label)}</button>
@@ -3318,8 +3319,10 @@ function fcOpenDeckDetails(deckId, event) {
     openDeckSheet(deckId, event);
 }
 
+let fcSheetOpener = null;
 function openDeckSheet(deckId, event) {
     if (event) event.stopPropagation();
+    fcSheetOpener = document.activeElement; // to restore focus on close (a11y)
     if (deckId) selectDeck(deckId);
     const sheet = document.getElementById('fc-deck-sheet');
     const body = document.getElementById('fc-sheet-body');
@@ -3340,12 +3343,37 @@ function openDeckSheet(deckId, event) {
     renderPresetControl();
     sheet.classList.add('open');
     document.getElementById('fc-deck-scrim')?.classList.add('open');
+    const firstFocus = document.getElementById('fc-sheet-study') || document.getElementById('fc-sheet-close');
+    if (firstFocus) setTimeout(() => { try { firstFocus.focus(); } catch (_) { /* ignore */ } }, 50);
 }
 
 function closeDeckSheet() {
-    document.getElementById('fc-deck-sheet')?.classList.remove('open');
+    const sheet = document.getElementById('fc-deck-sheet');
+    const wasOpen = sheet && sheet.classList.contains('open');
+    sheet?.classList.remove('open');
     document.getElementById('fc-deck-scrim')?.classList.remove('open');
+    if (wasOpen) {
+        // Return focus to the active deck's ⋯ (re-queried — the grid may have
+        // re-rendered since open, detaching the original opener node).
+        const back = document.querySelector('#fc-deck-grid .fc-deck-card.active .fc-deck-more-btn')
+            || (fcSheetOpener && document.body.contains(fcSheetOpener) ? fcSheetOpener : null);
+        if (back && typeof back.focus === 'function') { try { back.focus(); } catch (_) { /* ignore */ } }
+    }
+    fcSheetOpener = null;
 }
+
+// Trap Tab within the deck sheet while it's open (a11y).
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const sheet = document.getElementById('fc-deck-sheet');
+    if (!sheet || !sheet.classList.contains('open')) return;
+    const f = [...sheet.querySelectorAll('button, input, select, textarea, summary, [href], [tabindex]:not([tabindex="-1"])')]
+        .filter(el => el.offsetParent !== null && !el.disabled);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 function renameActiveDeck() {
     const deck = getActiveDeck();
@@ -3660,6 +3688,7 @@ async function showFlashcard(index) {
     currentFlashcardIndex = index;
     const card = cards[index];
     flashcardEl.classList.remove('flipped');
+    flashcardEl.setAttribute('aria-pressed', 'false');
     const renderToken = ++flashcardRenderToken;
     await Promise.all([
         renderCardFace(flashcardFront, flashcardConfig.front, card, 'front', renderToken),
@@ -3803,7 +3832,9 @@ function updateFlashcardProgress(card) {
         const pct = currentTestSession.mode === 'test'
             ? (currentTestSession.answered / (currentTestSession.total || totalCards)) * 100
             : ((currentFlashcardIndex + 1) / totalCards) * 100;
-        fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+        const clamped = Math.max(0, Math.min(100, pct));
+        fill.style.width = clamped + '%';
+        document.getElementById('fc-progress')?.setAttribute('aria-valuenow', String(Math.round(clamped)));
     }
     if (!card) {
         flashcardDueIndicator.textContent = '';
