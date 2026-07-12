@@ -77,6 +77,10 @@ const upload = multer({
 
 const app = express();
 const PORT = 3000;
+// Behind Caddy — trust the first proxy hop so express-rate-limit keys on the
+// real client IP (X-Forwarded-For) instead of lumping every user under the
+// proxy's single IP (which made the limits global rather than per-user).
+app.set('trust proxy', 1);
 
 // === Middleware ===
 app.use(helmet({
@@ -139,6 +143,24 @@ const utilityLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// TTS is cached (repeat playback is free), but cap per-IP requests so an abuser
+// can't run up an unbounded OpenAI bill with a flood of unique inputs. Generous
+// enough for a heavy study session; still bounded.
+const ttsLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Writes to the shared custom-db.json — should be infrequent.
+const saveDbLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 // Apply stricter limits to expensive AI endpoints
 app.use('/transcribe', aiLimiter);
 app.use('/enhance', aiLimiter);
@@ -154,6 +176,8 @@ app.use('/resolve-track', utilityLimiter);
 app.use('/summarize', aiLimiter);
 app.use('/video-subs', utilityLimiter);
 app.use('/identify-song', aiLimiter);
+app.use('/tts', ttsLimiter);              // BUG-03: was unlimited -> unbounded OpenAI spend
+app.use('/save-custom-db', saveDbLimiter); // BUG-01: throttle writes to the shared DB
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
@@ -1018,25 +1042,30 @@ app.post('/identify-song', upload.single('sample'), async (req, res) => {
 });
 
 // === NEW ENDPOINT TO SAVE THE CUSTOM DATABASE ===
+// NOTE: this endpoint is still unauthenticated and replaces the whole shared
+// custom-db.json — the proper fix is per-user accounts (see the iOS/port plan).
+// Until then it is rate-limited (saveDbLimiter), shape/size-validated, and
+// written atomically so it can't be corrupted mid-write or by a concurrent save.
 app.post('/save-custom-db', async (req, res) => {
-    console.log('Received request to save custom DB.');
-
     const dataToSave = req.body;
     const dbPath = path.join(__dirname, 'custom-db.json');
 
-    // Basic validation: check if the received data is an object
-    if (typeof dataToSave !== 'object' || dataToSave === null) {
+    // Must be a plain object (not null/array) with a sane number of entries.
+    if (typeof dataToSave !== 'object' || dataToSave === null || Array.isArray(dataToSave)) {
         return res.status(400).json({ error: 'Invalid data format. Expected a JSON object.' });
+    }
+    if (Object.keys(dataToSave).length > 100000) {
+        return res.status(413).json({ error: 'Payload too large.' });
     }
 
     try {
-        // Convert the JSON object to a string with nice formatting (2-space indent)
         const jsonString = JSON.stringify(dataToSave, null, 2);
-
-        // Asynchronously write the file. This is non-blocking.
-        await fs.writeFile(dbPath, jsonString, 'utf8');
-
-        console.log('✅ Successfully saved custom-db.json');
+        // Atomic write: write a temp file, then rename over the target. rename is
+        // atomic on the same filesystem, so a crash or concurrent write can never
+        // leave custom-db.json half-written.
+        const tmpPath = `${dbPath}.tmp-${crypto.randomBytes(6).toString('hex')}`;
+        await fs.writeFile(tmpPath, jsonString, 'utf8');
+        await fs.rename(tmpPath, dbPath);
         res.status(200).json({ message: 'Database saved successfully.' });
     } catch (error) {
         console.error('❌ Error saving custom-db.json:', error);
