@@ -6993,11 +6993,11 @@ function ensureKaraokeOverlay() {
         </div>
         <div id="kara-search-view">
             <div class="kara-search">
-                <input type="search" id="kara-input" placeholder="Search a song or artist…">
+                <input type="search" id="kara-input" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Search a song or artist…">
                 <button class="modal-btn primary" id="kara-search-btn">Search</button>
             </div>
             <div class="kara-search kara-link-search">
-                <input type="url" id="kara-link-input" inputmode="url" placeholder="…or paste a Spotify / Apple Music / YouTube link" autocomplete="off">
+                <input type="url" id="kara-link-input" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="…or paste a Spotify / Apple Music / YouTube link" autocomplete="off">
                 <button class="modal-btn" id="kara-link-btn">Use link</button>
             </div>
             <button class="modal-btn" id="kara-identify" style="display:block; margin:0 auto 0.5rem;">🎧 Identify the song playing now</button>
