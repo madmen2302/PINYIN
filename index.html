@@ -1169,6 +1169,13 @@
         @media (max-width: 520px) {
             #char-info-modal-body, #session-categories-list { grid-template-columns: 1fr !important; }
         }
+
+        /* iOS Safari zooms the whole page when focusing any control under 16px.
+           !important so this wins over the many higher-specificity ID rules
+           (e.g. #history-search-input) that set a smaller font-size. */
+        @media (max-width: 1024px) {
+            input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea { font-size: 16px !important; }
+        }
     </style>
 </head>
 <body>
