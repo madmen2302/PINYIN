@@ -1209,8 +1209,15 @@ function initializeToggles() {
     mainHeader.appendChild(leftGroup);
 
     // --- Center Group ---
+    // The header is only ever visible on the home screen (every mode opens a
+    // full-screen overlay that covers it), so a static wordmark is the right
+    // fill for this always-visible strip rather than a per-mode title.
     const centerGroup = document.createElement('div');
-    centerGroup.className = 'header-group center'; // This will now be empty, but we can leave it for future use.
+    centerGroup.className = 'header-group center';
+    const wordmark = document.createElement('span');
+    wordmark.id = 'header-wordmark';
+    wordmark.textContent = '拼音 Pinyin Reader';
+    centerGroup.appendChild(wordmark);
     mainHeader.appendChild(centerGroup);
 
     // --- Right Group ---

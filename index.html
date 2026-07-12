@@ -156,13 +156,18 @@
         .header-group.left { justify-content: flex-start; }
         .header-group.center { flex: 1; justify-content: center; }
         .header-group.right { justify-content: flex-end; flex-shrink: 0; }
+        #header-wordmark { font-weight: 700; font-size: 0.95rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         /* Narrow phones: tighten so the row of header icons never runs past the
            right edge (keeps ~40px targets — still comfortably tappable). */
         @media (max-width: 400px) {
             .main-header { padding-left: 0.5rem; padding-right: 0.5rem; }
             .header-group { gap: 0.15rem; }
             .header-icon-btn, #controls-toggle-btn { min-width: 40px; padding: 0.35rem; }
+            /* Below ~360px keep the wordmark to the Chinese mark only so the
+               row of icons never gets pushed off-screen. */
+            #header-wordmark { font-size: 0.85rem; }
         }
+        @media (max-width: 359px) { #header-wordmark { display: none; } }
 
         .header-icon-btn {
             background: none;
