@@ -775,11 +775,24 @@
             /* Hide desktop drag handles and move toggles to header */
             .panel-drag-handle { display: none; }
 
-            #history-panel, #right-panel { position: fixed; top: 0; bottom: 0; width: 85vw; border-radius: 0; z-index: 100; height: 100%; }
-            #history-panel { left: -100%; transition: left 0.3s; } 
+            /* top/bottom insets clear the fixed header (which sits above these
+               panels in z-index and would otherwise hide their own title bar)
+               and the home-indicator safe area. */
+            #history-panel, #right-panel {
+                position: fixed; top: calc(50px + env(safe-area-inset-top)); bottom: 0;
+                width: 85vw; border-radius: 0; z-index: 100;
+                padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+            }
+            #history-panel { left: -100%; transition: left 0.3s; }
             body.left-panel-open #history-panel { left: 0; }
-            #right-panel { right: -100%; transition: right 0.3s; } 
+            #right-panel { right: -100%; transition: right 0.3s; }
             body.right-panel-open #right-panel { right: 0; }
+
+            /* Tighten the Tools list's section spacing — it has ~10 sections
+               and desktop's roomy gaps make for a lot of scrolling on phones. */
+            #right-panel .panel-section { margin-top: 0.65rem; padding-top: 0.65rem; }
+            #right-panel .panel-title { margin-bottom: 0.5rem; }
+            #right-panel .panel-btn { margin-bottom: 0.4rem; padding: 0.65rem 0.8rem; }
 
             /* Hide desktop-only center toggle, show mobile one */
             #center-toggle-controls { display: none; }
