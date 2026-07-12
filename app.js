@@ -580,6 +580,11 @@ if (panelOverlay) {
     });
 }
 
+// Explicit ✕ close buttons for the mobile drawers — the scrim alone is a
+// thin, easy-to-miss target on a phone (85vw drawer leaves ~15vw of scrim).
+document.getElementById('history-panel-close')?.addEventListener('click', () => toggleHistoryPanel(false));
+document.getElementById('right-panel-close')?.addEventListener('click', () => toggleRightPanel(false));
+
 
 handleViewportChange(viewportQuery);
 viewportQuery.addEventListener('change', handleViewportChange);

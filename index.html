@@ -208,6 +208,10 @@
         #right-panel.collapsed { width: 0; padding: 0; margin-right: -2rem; border: none; overflow: hidden; opacity: 0; }
         
         #history-panel h3, #right-panel h3 { margin: 0 0 1.25rem 0; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+        .panel-close-btn { margin-left: auto; width: 44px; height: 44px; flex-shrink: 0; border: none; background: none; color: var(--text-secondary); font-size: 1.1rem; line-height: 1; cursor: pointer; border-radius: 10px; display: none; align-items: center; justify-content: center; }
+        .panel-close-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+        /* Only needed on the phone-drawer layout — desktop panels close via the edge toggle. */
+        body.mobile-layout .panel-close-btn { display: inline-flex; }
 
         /* ======== NEW DRAG HANDLES ======== */
         .panel-drag-handle {
@@ -1208,6 +1212,7 @@
             <h3>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 History
+                <button id="history-panel-close" class="panel-close-btn" aria-label="Close history panel">✕</button>
             </h3>
             <div id="history-filter-controls">
                 <div id="history-search-wrapper">
@@ -1290,6 +1295,7 @@
             <h3>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 Tools
+                <button id="right-panel-close" class="panel-close-btn" aria-label="Close tools panel">✕</button>
             </h3>
             <div id="right-panel-content">
                 <div id="session-controls" class="panel-section">
