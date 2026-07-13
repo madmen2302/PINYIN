@@ -12,6 +12,7 @@ const historyIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewB
 // ⚙️ Settings button, a second gear-shaped icon recreated the very "which
 // gear?" confusion this header redesign set out to fix.
 const toolsIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>`;
+const saveIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M17 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>`;
 const textInputIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>`;
 
 // ======== ELEMENTS ========
@@ -49,7 +50,6 @@ const voiceSelector = document.getElementById('voice-selector');
 const speedSlider = document.getElementById('speed-slider');
 const enhanceBtn = document.getElementById('enhance-btn');
 const revertBtn = document.getElementById('revert-btn');
-const ttsControls = document.getElementById('tts-controls');
 const processingOverlay = document.getElementById('processing-overlay');
 const saveSessionToggle = document.getElementById('save-session-toggle');
 const autoSaveStatus = document.getElementById('auto-save-status');
@@ -70,7 +70,6 @@ const globalStatsContent = document.getElementById('global-stats-content'); // =
 // === Right Panel Elements ===
 const rightPanel = document.getElementById('right-panel');
 const rightPanelDragHandle = document.getElementById('right-panel-drag-handle');
-const voiceSettingsToggle = document.getElementById('voice-settings-toggle');
 const panelOverlay = document.getElementById('panel-overlay');
 
 // === Flashcard Elements ===
@@ -634,7 +633,6 @@ document.addEventListener('keydown', (e) => {
     // Close the topmost open transient surface (one per press), most-nested first,
     // and only fall back to the side panels if nothing overlay-like is open.
     const aaPop = document.getElementById('reader-aa-popover');
-    if (ttsControls && ttsControls.style.display === 'grid') { ttsControls.style.display = 'none'; return; }
     if (aaPop && aaPop.style.display === 'grid') { aaPop.style.display = 'none'; return; }
     if (modal && modal.classList.contains('active')) { closeHanziModal(); return; }
     if (charInfoModal && charInfoModal.classList.contains('active')) { charInfoModal.classList.remove('active'); return; }
@@ -689,90 +687,6 @@ summaryFab.addEventListener('click', () => {
 });
 
 // === Settings popover (⚙️) ===
-// Consolidates the voice selector, speed slider, mic toggle and auto-save
-// toggle — previously scattered across the always-visible header — behind
-// one gear button. The controls themselves keep their original ids/listeners;
-// this only relocates them into a floating popover anchored to the button.
-function initSettingsPopover() {
-    if (!ttsControls || !voiceSettingsToggle) return;
-    voiceSettingsToggle.innerHTML = '⚙️';
-    voiceSettingsToggle.setAttribute('aria-label', 'Settings');
-    voiceSettingsToggle.title = 'Settings';
-
-    ttsControls.classList.add('settings-popover');
-    document.body.appendChild(ttsControls); // escape header/card overflow clipping
-
-    // Fold the mic (voice input) and auto-save toggles into the same popover
-    // instead of leaving them as separate always-visible header icons.
-    if (micFab) {
-        const row = document.createElement('div');
-        row.className = 'tts-group settings-popover-row';
-        const lbl = document.createElement('label');
-        lbl.textContent = 'Voice input:';
-        row.appendChild(lbl);
-        row.appendChild(micFab);
-        ttsControls.appendChild(row);
-    }
-    // Dark mode is a set-once preference, not a per-session action — it
-    // doesn't earn permanent header real estate. Move it in here alongside
-    // mic/auto-save (mirrors the pattern above); listener stays untouched.
-    if (darkModeToggle) {
-        const row = document.createElement('div');
-        row.className = 'tts-group settings-popover-row';
-        const lbl = document.createElement('label');
-        lbl.textContent = 'Dark mode:';
-        row.appendChild(lbl);
-        row.appendChild(darkModeToggle);
-        ttsControls.appendChild(row);
-    }
-    if (saveSessionToggle) {
-        const row = document.createElement('div');
-        row.className = 'tts-group settings-popover-row';
-        const lbl = document.createElement('label');
-        lbl.setAttribute('for', 'save-session-toggle');
-        lbl.textContent = 'Auto-save sessions:';
-        row.appendChild(lbl);
-        const wrap = document.createElement('span');
-        wrap.className = 'settings-popover-autosave';
-        // Move the whole toggle-switch label (not just the bare <input>) — the
-        // switch's visual knob is a sibling <span class="toggle-slider"> that
-        // only lights up via a same-parent CSS selector.
-        const toggleWrapper = saveSessionToggle.closest('label.toggle-switch') || saveSessionToggle;
-        wrap.appendChild(toggleWrapper);
-        if (autoSaveStatus) wrap.appendChild(autoSaveStatus);
-        row.appendChild(wrap);
-        ttsControls.appendChild(row);
-    }
-
-    const positionPopover = () => {
-        const r = voiceSettingsToggle.getBoundingClientRect();
-        const margin = 8;
-        const width = Math.min(320, window.innerWidth - margin * 2);
-        ttsControls.style.width = width + 'px';
-        let left = r.right - width;
-        left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
-        ttsControls.style.top = Math.min(r.bottom + margin, window.innerHeight - 40) + 'px';
-        ttsControls.style.left = left + 'px';
-    };
-
-    voiceSettingsToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const opening = ttsControls.style.display !== 'grid';
-        ttsControls.style.display = opening ? 'grid' : 'none';
-        if (opening) positionPopover();
-    });
-    window.addEventListener('resize', () => { if (ttsControls.style.display === 'grid') positionPopover(); });
-    document.addEventListener('click', (e) => {
-        if (ttsControls.style.display !== 'grid') return;
-        if (ttsControls.contains(e.target) || voiceSettingsToggle.contains(e.target)) return;
-        ttsControls.style.display = 'none';
-    });
-    ttsControls.addEventListener('click', (e) => e.stopPropagation());
-    // Whatever's left of the old header icon groups (now missing mic/auto-save)
-    // — drop any that ended up empty instead of leaving a bare pill behind.
-    document.querySelectorAll('.top-right-group').forEach(g => { if (!g.children.length) g.remove(); });
-}
-initSettingsPopover();
 
 if (saveSessionToggle) {
     saveSessionToggle.addEventListener('change', () => {
@@ -1228,18 +1142,46 @@ function initializeToggles() {
 
     // --- Right Group ---
     // The Tools drawer slides in from the right, so its trigger anchors this
-    // edge. Stop (conditional) and Settings sit inboard of it, in the order
-    // they already existed in the DOM — no listeners are recreated, only
-    // moved, so click handlers already wired to these elements keep working.
+    // edge. Stop (conditional), voice input and auto-save sit inboard of it,
+    // in the order they already existed in the DOM — no listeners are
+    // recreated, only moved, so click handlers already wired to these
+    // elements keep working.
     const rightGroup = document.createElement('div');
     rightGroup.className = 'header-group right';
-    ['stop-fab', 'voice-settings-toggle'].forEach(id => {
+    ['stop-fab', 'mic-fab'].forEach(id => {
         const btn = document.getElementById(id);
         if (!btn) return;
         btn.classList.remove('top-right-btn');
         btn.classList.add('header-icon-btn');
         rightGroup.appendChild(btn);
     });
+
+    // Auto-save toggle: the underlying checkbox (#save-session-toggle) and
+    // its status text (#auto-save-status) stay in the DOM as hidden data
+    // sources — this button is just a visual bridge so the header keeps its
+    // icon-only language instead of a checkbox pill.
+    if (saveSessionToggle) {
+        const autoSaveBtn = document.createElement('button');
+        autoSaveBtn.id = 'auto-save-toggle-btn';
+        autoSaveBtn.className = 'header-icon-btn';
+        autoSaveBtn.innerHTML = saveIcon;
+        autoSaveBtn.addEventListener('click', () => {
+            saveSessionToggle.checked = !saveSessionToggle.checked;
+            saveSessionToggle.dispatchEvent(new Event('change'));
+        });
+        const syncAutoSaveBtn = () => {
+            const on = saveSessionToggle.checked;
+            autoSaveBtn.classList.toggle('is-off', !on);
+            const warnText = autoSaveStatus ? autoSaveStatus.textContent.trim() : '';
+            autoSaveBtn.classList.toggle('has-warning', !!warnText);
+            autoSaveBtn.setAttribute('aria-label', on ? 'Auto-save sessions: on' : 'Auto-save sessions: off');
+            autoSaveBtn.title = warnText || (on ? 'Auto-save: on' : 'Auto-save: off');
+        };
+        syncAutoSaveBtn();
+        saveSessionToggle.addEventListener('change', syncAutoSaveBtn);
+        if (autoSaveStatus) new MutationObserver(syncAutoSaveBtn).observe(autoSaveStatus, { childList: true, characterData: true, subtree: true });
+        rightGroup.appendChild(autoSaveBtn);
+    }
 
     const mobileToolsBtn = document.createElement('button');
     mobileToolsBtn.id = 'mobile-tools-toggle';
@@ -1250,9 +1192,9 @@ function initializeToggles() {
     // Add the tools button to the right group
     rightGroup.appendChild(mobileToolsBtn);
 
-    // The old wrapper now holds only empty shell divs (mic/dark-mode/auto-save
-    // already relocated into the settings popover) — remove it outright.
-    document.querySelector('.top-right-controls')?.remove();
+    // The wrapper is left in place (display:none) — once mic/stop are pulled
+    // out above, it holds only the hidden auto-save checkbox/status, which
+    // need to stay attached to the document for the change listener above.
     mainHeader.appendChild(rightGroup);
 
     mainHeader.style.display = 'flex'; // Make the header visible
@@ -1794,7 +1736,6 @@ function displaySession(sessionId) {
     playAllFab.style.display = 'flex';
     playCharListFab.style.display = 'flex'; // Show
     // stopFab is controlled by listeners
-    if (ttsControls) ttsControls.style.display = 'none'; // Hide TTS controls by default
     topControlsWrapper.classList.remove('hidden'); // Show text input
     controlsToggleBtn.classList.add('active');
     updateSelectedCount(); // === NEW ===
