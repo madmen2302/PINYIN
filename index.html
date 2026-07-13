@@ -411,13 +411,27 @@
         .panel-title { text-align: center; font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
         /* Only titles that actually collapse a section get the pointer + chevron. */
         .panel-title.collapsible { cursor: pointer; }
-        .panel-title.collapsible::after { content: '🔼'; font-size: 0.8em; transition: transform 0.3s; }
+        .panel-title.collapsible::after { content: '▴'; font-size: 0.9em; transition: transform 0.3s; }
         .panel-section.collapsed .panel-title.collapsible::after { transform: rotate(180deg); }
         .panel-section.collapsed > *:not(.panel-title) { max-height: 0 !important; opacity: 0; overflow: hidden; margin: 0; padding: 0; }
         /* Sections auto-hidden by updateToolsSectionVisibility() (app.js) — the
            !important guards against the flex rule below (or any future one)
            overriding the UA's [hidden] default. */
         #right-panel-content .panel-section[hidden] { display: none !important; }
+
+        /* V2 polish: hairline separators + overline titles, scoped to the Tools panel
+           so .panel-title inside the flashcard modal keeps its current look. */
+        #right-panel-content .panel-section { border-top-color: var(--border-hairline); }
+        #right-panel-content .panel-title {
+            justify-content: flex-start; text-align: left;
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--text-subtle);
+            margin-bottom: 0.6rem;
+        }
+        #right-panel-content .panel-title.collapsible {
+            min-height: 44px; align-items: center; margin-bottom: 0;
+        }
+        #right-panel-content .panel-title.collapsible::after { margin-left: auto; }
 
         .panel-btn {
             background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 14px;
@@ -427,7 +441,47 @@
         .panel-btn:hover { transform: translateY(-2px); border-color: var(--accent-color); color: var(--accent-color); box-shadow: var(--shadow-md); }
         .panel-btn svg { width: 20px; height: 20px; }
 
-        #session-controls, #flashcard-controls { display: flex; flex-direction: column; gap: 0.5rem; }
+        /* ---- Tool tile grids (V2) ---- */
+        #right-panel-content .tool-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+            gap: 8px;
+        }
+        #right-panel-content .tool-grid > .panel-title { grid-column: 1 / -1; }
+
+        #right-panel-content .tool-grid > .panel-btn {
+            flex-direction: column; align-items: center; justify-content: flex-start;
+            gap: 6px; margin-bottom: 0; padding: 10px 4px 9px;
+            min-height: 76px; border-radius: var(--radius-sm);
+            font-size: 0.78rem; font-weight: 600; line-height: 1.2; text-align: center;
+        }
+        #right-panel-content .tool-grid > .panel-btn:active { transform: scale(0.96); }
+        #right-panel-content .tool-grid > .panel-btn span {
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        /* 36px icon chip: 22px glyph + 7px content-box padding */
+        #right-panel-content .tool-grid > .panel-btn svg {
+            width: 22px; height: 22px; box-sizing: content-box; padding: 7px;
+            border-radius: 12px; flex-shrink: 0;
+            background: var(--accent-soft); color: var(--accent-color);
+        }
+        #right-panel-content .tool-grid > .panel-btn.tool-primary svg {
+            background: var(--accent-grad); color: #fff;
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+
+        /* Tier-3 utility rows (Enhance, Revert, Reset Panel Widths). Placed AFTER the
+           tile rules: equal specificity (1 id + 2 classes), so source order lets these
+           win for the two buttons that match both. */
+        #right-panel-content .panel-btn.tool-wide { grid-column: 1 / -1; }
+        #right-panel-content .panel-btn.tool-subtle {
+            flex-direction: row; justify-content: center;
+            background: none; border: 1px solid var(--border-hairline); box-shadow: none;
+            color: var(--text-secondary); font-size: 0.85rem; font-weight: 500;
+            min-height: 44px; padding: 0.6rem 0.8rem; margin-bottom: 0;
+        }
+        #right-panel-content .panel-btn.tool-subtle:hover { color: var(--accent-color); transform: none; }
 
         /* Radicals */
         .char-selector-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; background: var(--input-bg); padding: 0.5rem; border-radius: 12px; margin-bottom: 1rem; }
@@ -728,7 +782,7 @@
         /* Toggle Switch */
         .toggle-switch { position: relative; display: inline-block; width: 42px; height: 24px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(120, 120, 128, 0.32); transition: .4s; border-radius: 24px; }
         .toggle-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .toggle-slider { background-color: var(--success-color); }
         input:checked + .toggle-slider:before { transform: translateX(18px); }
@@ -795,8 +849,6 @@
             /* Tighten the Tools list's section spacing — it has ~10 sections
                and desktop's roomy gaps make for a lot of scrolling on phones. */
             #right-panel .panel-section { margin-top: 0.65rem; padding-top: 0.65rem; }
-            #right-panel .panel-title { margin-bottom: 0.5rem; }
-            #right-panel .panel-btn { margin-bottom: 0.4rem; padding: 0.65rem 0.8rem; }
 
             /* Desktop-only control: resets drag-resize widths that cannot exist
                on phones (drag handles are display:none above; panels are fixed
@@ -1338,7 +1390,7 @@
                 <button id="right-panel-close" class="panel-close-btn" aria-label="Close tools panel">✕</button>
             </h3>
             <div id="right-panel-content">
-                <div id="session-controls" class="panel-section">
+                <div id="session-controls" class="panel-section tool-grid">
                     <h4 class="panel-title">This Text</h4>
                     <button id="summary-fab" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M19 15v4H5v-4h14m1-2H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-4c0-1.1-.9-2-2-2zM12 3L4 9v4h16V9l-8-6z"></path></svg>
@@ -1356,27 +1408,35 @@
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"></path></svg>
                         <span>Play List</span>
                     </button>
-                    <button id="enhance-btn" class="panel-btn" style="display: none;">Enhance Definitions (AI)</button>
-                    <button id="revert-btn" class="panel-btn" style="display: none;">Revert to Dictionary</button>
+                    <button id="enhance-btn" class="panel-btn tool-wide tool-subtle" style="display: none;">Enhance Definitions (AI)</button>
+                    <button id="revert-btn" class="panel-btn tool-wide tool-subtle" style="display: none;">Revert to Dictionary</button>
                 </div>
 
-                <div id="flashcard-controls" class="panel-section">
-                    <h4 class="panel-title">Practice</h4>
-                    <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 5H3V3h4v2zm0 8H3v-2h4v2zm0 8H3v-2h4v2zm4-4h10v-2H11v2zm0-8h10V7H11v2zm0-8h10V3H11v2z"></path></svg>
-                        <span>Select All Chars</span>
-                    </button>
-                    <button id="flashcard-btn" class="panel-btn" style="display: none;">
+                <div id="flashcard-controls" class="panel-section tool-grid">
+                    <h4 class="panel-title">Study</h4>
+                    <button id="flashcard-btn" class="panel-btn tool-primary" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.5 15.5c-1.1 0-2 .9-2 2v2c0 1.1-.9 2-2 2h-12c-1.1 0-2-.9-2-2v-12c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v2c0 1.1.9 2 2 2s2-.9 2-2V5.5c0-2.2-1.8-4-4-4h-12c-2.2 0-4 1.8-4 4v12c0 2.2 1.8 4 4 4h12c2.2 0 4-1.8 4-4V17.5c0-1.1-.9-2-2-2zM20 9.5c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2z"></path></svg>
                         <span>Flashcards</span>
                     </button>
-                    <button id="flashcard-game-btn" class="panel-btn" style="display: none;">
+                    <button id="flashcard-game-btn" class="panel-btn tool-primary" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M16.5 9l-1.5-1.5-3 3-3-3L7.5 9l3 3-3 3 1.5 1.5 3-3 3 3 1.5-1.5-3-3 3-3zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"></path></svg>
-                        <span>Game Mode</span>
+                        <span>Games</span>
+                    </button>
+                    <button id="voice-tutor-btn" class="panel-btn tool-primary">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
+                        <span>Voice Tutor</span>
+                    </button>
+                    <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 5H3V3h4v2zm0 8H3v-2h4v2zm0 8H3v-2h4v2zm4-4h10v-2H11v2zm0-8h10V7H11v2zm0-8h10V3H11v2z"></path></svg>
+                        <span>Select All</span>
                     </button>
                     <button id="radicals-btn" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M21.6 6.3c-.4-.4-1-.4-1.4 0L18 8.6V7c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v1.6L9.8 6.3c-.4-.4-1-.4-1.4 0l-7 7c-.4.4-.4 1 0 1.4l7 7c.4.4 1 .4 1.4 0L12 19.4V21c0 1.1.9 2 2 2h2c1.1 0 2-.9 2-2v-1.6l2.2 2.2c.4.4 1 .4 1.4 0l7-7c.4-.4.4-1 0-1.4l-7-7zM16 9c-1.7 0-3-1.3-3-3s1.3-3 3-3 3 1.3 3 3-1.3 3-3 3z"></path></svg>
-                        <span>Radicals & Mnemonics</span>
+                        <span>Radicals</span>
+                    </button>
+                    <button id="hsk-progress-btn" class="panel-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"></path></svg>
+                        <span>HSK Progress</span>
                     </button>
                 </div>
 
@@ -1384,18 +1444,6 @@
                     <h4 id="radicals-title" class="panel-title collapsible">Radicals & Mnemonics</h4>
                     <div id="radicals-char-list" class="char-selector-grid"></div>
                     <div id="radicals-output"></div>
-                </div>
-
-                <div id="voice-tutor-controls" class="panel-section">
-                    <h4 class="panel-title">Speaking &amp; Progress</h4>
-                    <button id="voice-tutor-btn" class="panel-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
-                        <span>Voice Tutor (AI)</span>
-                    </button>
-                    <button id="hsk-progress-btn" class="panel-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"></path></svg>
-                        <span>HSK Progress</span>
-                    </button>
                 </div>
 
                 <div class="panel-section">
@@ -1416,7 +1464,7 @@
                             </label>
                         </div>
                     </div>
-                    <button id="reset-panels-btn" class="panel-btn">
+                    <button id="reset-panels-btn" class="panel-btn tool-subtle">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"></path></svg>
                         <span>Reset Panel Widths</span>
                     </button>
