@@ -1131,6 +1131,29 @@
         .tutor-debrief-used { margin-bottom: 0.6rem; font-size: 0.95rem; }
         .tutor-debrief-used .used { color: var(--success-color); font-weight: 700; }
         .tutor-debrief-used .missed { color: var(--text-subtle); text-decoration: line-through; }
+
+        /* ---- Flirt / date scenario: coaching toggle, cheat sheet, suggestions ---- */
+        .tutor-date-panel { text-align: left; margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; }
+        .tutor-coach-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 8px 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--input-bg); cursor: pointer; }
+        .tutor-coach-text { display: flex; flex-direction: column; gap: 2px; font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
+        .tutor-coach-text small { font-weight: 400; font-size: 0.72rem; color: var(--text-secondary); }
+        .tutor-cheatsheet { border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--input-bg); overflow: hidden; }
+        .tutor-cheatsheet > summary { list-style: none; cursor: pointer; padding: 10px 14px; font-size: 0.9rem; font-weight: 600; color: var(--accent-color); }
+        .tutor-cheatsheet > summary::-webkit-details-marker { display: none; }
+        #tutor-cheatsheet-body { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 0.7rem; max-height: 300px; overflow-y: auto; }
+        .cheat-cat { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-subtle); margin: 0.3rem 0 0.35rem; }
+        .cheat-item, .tutor-sugg { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
+            padding: 7px 10px; margin-bottom: 5px; border: 1px solid var(--border-hairline); border-radius: var(--radius-sm);
+            background: var(--card-bg); color: var(--text-main); cursor: pointer; transition: border-color 0.15s, transform 0.1s var(--ease-spring); }
+        .cheat-item:active, .tutor-sugg:active { transform: scale(0.98); }
+        .cheat-item:hover, .tutor-sugg:hover { border-color: var(--accent-color); }
+        .cheat-zh, .sugg-zh { font-size: 1.05rem; font-family: "KaiTi","STKaiti","楷体",serif; }
+        .cheat-py, .sugg-py { font-size: 0.8rem; color: var(--accent-color); }
+        .cheat-en, .sugg-en { font-size: 0.78rem; color: var(--text-secondary); font-style: italic; }
+        .tutor-suggestions { margin-top: 0.55rem; padding-top: 0.5rem; border-top: 1px dashed var(--border-hairline); display: flex; flex-direction: column; gap: 4px; }
+        .tutor-suggestions.loading .tutor-sugg-label::after { content: ' …'; }
+        .tutor-sugg-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-subtle); }
         .tutor-correction { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: var(--input-bg); border: 1px solid var(--border-hairline); margin-bottom: 0.4rem; }
         .tutor-correction .c-said { color: var(--danger-color); }
         .tutor-correction .c-better { color: var(--success-color); font-weight: 600; }

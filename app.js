@@ -5811,6 +5811,7 @@ if (voiceTutorBtn) voiceTutorBtn.addEventListener('click', openVoiceTutor);
 // Scenario Director: role-play missions the tutor stays in character for.
 const TUTOR_SCENARIOS = [
     { id: 'free', emoji: '💬', name: 'Free chat', prompt: '' },
+    { id: 'date', emoji: '💕', name: 'Flirt / date', prompt: 'Role-play as 小雨 (Xiǎoyǔ), a warm, witty, flirtatious young Chinese woman on a first date with the male learner. Be playful and a little bold: tease him, give and fish for compliments, build romantic tension, and read his signals — but always stay sweet, respectful, consensual, and never explicit. Keep YOUR Mandarin slow, simple, and to ONE short sentence, then ask him one easy question back. When it fits, start a fun date game: would-you-rather (你选哪个), a truth question (真心话), or trading compliments, and now and then drop a classic flirty line. If he is lost or silent, gently offer an easier question. Stay in character as his date the whole time.' },
     { id: 'restaurant', emoji: '🍜', name: 'Order food', prompt: 'You are a waiter at a Chinese restaurant; the learner is ordering a meal.' },
     { id: 'directions', emoji: '🧭', name: 'Ask directions', prompt: 'You are a passer-by; the learner is lost and asking how to get somewhere.' },
     { id: 'shopping', emoji: '🛍️', name: 'Go shopping', prompt: 'You are a shop clerk; the learner is buying clothes and asking about size and price.' },
@@ -5821,6 +5822,41 @@ const TUTOR_SCENARIOS = [
 let tutorScenario = TUTOR_SCENARIOS[0];
 let tutorTranscriptLog = [];
 let tutorTargetWords = [];
+
+// "What to reply" cheat sheet for the Flirt / date scenario, curated from the
+// user's date phrasebook + game pack. Pinyin is generated at render time.
+const DATE_CHEATSHEET = [
+    { cat: 'Openers · would-you-rather', items: [
+        { zh: '你喜欢喝咖啡还是喝茶？', en: 'Coffee or tea?' },
+        { zh: '海边还是山上？', en: 'Beach or mountains?' },
+        { zh: '浪漫的晚餐还是好玩的冒险？', en: 'Romantic dinner or fun adventure?' } ] },
+    { cat: 'Truth questions', items: [
+        { zh: '你觉得外国男生怎么样？', en: 'What do you think of foreign guys?' },
+        { zh: '你现在开心吗？', en: 'Are you happy right now?' },
+        { zh: '你相信一见钟情吗？', en: 'Do you believe in love at first sight?' } ] },
+    { cat: 'Compliments', items: [
+        { zh: '你今天真好看。', en: 'You look great today.' },
+        { zh: '你的笑容很美。', en: 'Your smile is beautiful.' },
+        { zh: '你很有意思。', en: "You're really fun." } ] },
+    { cat: 'Reactions (sound alive)', items: [
+        { zh: '真的吗？', en: 'Really?' },
+        { zh: '然后呢？', en: 'And then?' },
+        { zh: '我也是！', en: 'Me too!' },
+        { zh: '好可爱。', en: 'So cute.' } ] },
+    { cat: 'Bold / flirty', items: [
+        { zh: '我觉得我们很有缘分。', en: "I feel we're fated to meet." },
+        { zh: '你让我心跳加速。', en: 'You make my heart race.' },
+        { zh: '认识你是我来中国最好的事。', en: 'Meeting you is the best thing about China.' },
+        { zh: '我可以牵你的手吗？', en: 'Can I hold your hand?' } ] },
+    { cat: 'Safety net', items: [
+        { zh: '你可以慢一点说吗？', en: 'Can you speak a little slower?' },
+        { zh: '我没听懂，再说一遍好吗？', en: "I didn't catch that, once more?" },
+        { zh: '没听懂，但是你说话的样子很可爱。', en: "Didn't understand, but you're cute when you talk." } ] }
+];
+
+let tutorEnglishCoaching = false;
+try { tutorEnglishCoaching = localStorage.getItem('tutorEnglishCoaching') === 'true'; } catch (_) { /* ignore */ }
+const isDateScenario = () => tutorScenario && tutorScenario.id === 'date';
 
 // Up to 8 SRS cards that are due, as the words to weave into this session.
 function gatherDueWords() {
@@ -5843,6 +5879,7 @@ function renderTutorScenarios() {
     wrap.querySelectorAll('.tutor-scenario').forEach(btn => btn.addEventListener('click', () => {
         tutorScenario = TUTOR_SCENARIOS.find(s => s.id === btn.dataset.id) || TUTOR_SCENARIOS[0];
         wrap.querySelectorAll('.tutor-scenario').forEach(b => b.classList.toggle('active', b === btn));
+        updateDatePanel();
     }));
 }
 
@@ -5883,6 +5920,16 @@ function ensureTutorModal() {
                 <button id="tutor-close" class="modal-btn">Close</button>
             </div>
             <div id="tutor-scenarios" class="tutor-scenarios"></div>
+            <div id="tutor-date-panel" class="tutor-date-panel" style="display:none">
+                <label class="tutor-coach-toggle">
+                    <span class="tutor-coach-text">English coaching<small>She adds a quick English tip each turn</small></span>
+                    <span class="toggle-switch small"><input type="checkbox" id="tutor-coach-toggle"><span class="toggle-slider"></span></span>
+                </label>
+                <details id="tutor-cheatsheet" class="tutor-cheatsheet">
+                    <summary>💡 Cheat sheet — what to say</summary>
+                    <div id="tutor-cheatsheet-body"></div>
+                </details>
+            </div>
             <div id="tutor-orb" class="tutor-orb"></div>
             <div id="tutor-status" class="tutor-status">Pick a scenario (or free chat), then tap start and speak in Chinese.</div>
             <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
@@ -5894,7 +5941,46 @@ function ensureTutorModal() {
     tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(true); tutorModalEl.classList.remove('active'); });
     tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => tutorActive ? stopTutor() : startTutor());
     tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) { stopTutor(true); tutorModalEl.classList.remove('active'); } });
+
+    const coachToggle = tutorModalEl.querySelector('#tutor-coach-toggle');
+    coachToggle.checked = tutorEnglishCoaching;
+    coachToggle.addEventListener('change', () => {
+        tutorEnglishCoaching = coachToggle.checked;
+        try { localStorage.setItem('tutorEnglishCoaching', String(tutorEnglishCoaching)); } catch (_) { /* ignore */ }
+    });
+    renderDateCheatsheet();
     return tutorModalEl;
+}
+
+// Build the tappable cheat sheet once. Tapping a phrase plays it so the learner
+// can hear the tones and shadow it before saying it on their turn.
+function renderDateCheatsheet() {
+    const body = tutorModalEl && tutorModalEl.querySelector('#tutor-cheatsheet-body');
+    if (!body || body.dataset.built) return;
+    const py = (zh) => window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(zh, { toneType: 'symbol' }) : '';
+    body.innerHTML = DATE_CHEATSHEET.map(group => `
+        <div class="cheat-group">
+            <div class="cheat-cat">${escapeHtml(group.cat)}</div>
+            ${group.items.map(it => `
+                <button type="button" class="cheat-item" data-zh="${escapeHtml(it.zh)}">
+                    <span class="cheat-zh">${escapeHtml(it.zh)}</span>
+                    <span class="cheat-py">${escapeHtml(py(it.zh))}</span>
+                    <span class="cheat-en">${escapeHtml(it.en)}</span>
+                </button>`).join('')}
+        </div>`).join('');
+    body.querySelectorAll('.cheat-item').forEach(btn =>
+        btn.addEventListener('click', () => window.requestSpeech?.(btn.dataset.zh)));
+    body.dataset.built = '1';
+}
+
+// Show the date-only helper panel (coaching toggle + cheat sheet) only for the
+// Flirt / date scenario. Kept visible during the call so it's there when needed.
+function updateDatePanel() {
+    const panel = tutorModalEl && tutorModalEl.querySelector('#tutor-date-panel');
+    if (!panel) return;
+    panel.style.display = isDateScenario() ? '' : 'none';
+    const coachToggle = tutorModalEl.querySelector('#tutor-coach-toggle');
+    if (coachToggle) coachToggle.checked = tutorEnglishCoaching;
 }
 
 function openVoiceTutor() {
@@ -5908,6 +5994,7 @@ function openVoiceTutor() {
     tutorModalEl.querySelector('#tutor-transcript').innerHTML = '';
     tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
     renderTutorScenarios();
+    updateDatePanel();
     tutorModalEl.classList.add('active');
 }
 
@@ -5918,14 +6005,19 @@ async function startTutor() {
     status.textContent = 'Connecting…';
     toggle.disabled = true;
     tutorTranscriptLog = [];
-    tutorTargetWords = gatherDueWords();
+    // On a date, weaving in random due SRS words would derail the roleplay.
+    tutorTargetWords = isDateScenario() ? [] : gatherDueWords();
     tutorModalEl.querySelector('#tutor-scenarios').style.display = 'none';
     tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
+    let scenarioPrompt = tutorScenario.prompt;
+    if (isDateScenario() && tutorEnglishCoaching) {
+        scenarioPrompt += ' COACHING: after each Chinese reply, add ONE short aside in English in parentheses — what you just said, plus a hint for how he could reply.';
+    }
     try {
         // 1. Ephemeral token from our server (with the chosen scenario + due words).
         const sess = await fetch(`${backendUrl}/realtime-session`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ scenario: tutorScenario.prompt, targetWords: tutorTargetWords })
+            body: JSON.stringify({ scenario: scenarioPrompt, targetWords: tutorTargetWords })
         });
         const sdata = await sess.json();
         if (!sess.ok) throw new Error(sdata.error || 'Could not start a session.');
@@ -6010,8 +6102,9 @@ async function addTutorTranscriptLine(who, chinese) {
     const pinyin = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(chinese, { toneType: 'symbol' }) : '';
     const line = document.createElement('div');
     line.className = `tutor-line ${who}`;
+    const whoLabel = who === 'you' ? 'You' : (isDateScenario() ? '小雨' : 'Tutor');
     line.innerHTML = `
-        <div class="tutor-line-who">${who === 'you' ? 'You' : 'Tutor'}</div>
+        <div class="tutor-line-who">${whoLabel}</div>
         <div class="tutor-line-zh">${escapeHtml(chinese)}</div>
         <div class="tutor-line-py">${escapeHtml(pinyin)}</div>
         <div class="tutor-line-en loading">…</div>`;
@@ -6026,6 +6119,46 @@ async function addTutorTranscriptLine(who, chinese) {
     }
     enEl.classList.remove('loading');
     wrap.scrollTop = wrap.scrollHeight;
+    // On a date, after each of her lines, suggest a few ways he could reply.
+    if (who === 'tutor' && isDateScenario()) fetchDateSuggestions(line, chinese);
+}
+
+// Ask the server for 2-3 reply ideas after the date's latest line and render
+// them as tappable chips (tap = hear it, to shadow before saying it). Degrades
+// silently if the endpoint isn't deployed yet or errors.
+async function fetchDateSuggestions(lineEl, herLine) {
+    if (!lineEl || !tutorModalEl) return;
+    const box = document.createElement('div');
+    box.className = 'tutor-suggestions loading';
+    box.innerHTML = `<span class="tutor-sugg-label">Try saying…</span>`;
+    lineEl.appendChild(box);
+    const wrap = tutorModalEl.querySelector('#tutor-transcript');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+    try {
+        const history = tutorTranscriptLog.slice(-6)
+            .map(l => `${l.who === 'you' ? 'He' : 'She'}: ${l.zh}`).join('\n');
+        const resp = await fetch(`${backendUrl}/date-reply-suggestions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lastLine: herLine, history })
+        });
+        if (!resp.ok) throw new Error('no suggestions');
+        const data = await resp.json();
+        const sugg = (data.suggestions || []).filter(s => s && s.zh);
+        if (!sugg.length) { box.remove(); return; }
+        const py = (zh) => window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(zh, { toneType: 'symbol' }) : '';
+        box.classList.remove('loading');
+        box.innerHTML = `<span class="tutor-sugg-label">Try saying…</span>` + sugg.map(s => `
+            <button type="button" class="tutor-sugg" data-zh="${escapeHtml(s.zh)}">
+                <span class="sugg-zh">${escapeHtml(s.zh)}</span>
+                <span class="sugg-py">${escapeHtml(py(s.zh))}</span>
+                <span class="sugg-en">${escapeHtml(s.en || '')}</span>
+            </button>`).join('');
+        box.querySelectorAll('.tutor-sugg').forEach(btn =>
+            btn.addEventListener('click', () => window.requestSpeech?.(btn.dataset.zh)));
+        if (wrap) wrap.scrollTop = wrap.scrollHeight;
+    } catch (_) {
+        box.remove(); // endpoint missing or failed — no clutter
+    }
 }
 
 // ===================================

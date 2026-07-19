@@ -179,6 +179,7 @@ app.use('/identify-song', aiLimiter);
 app.use('/tts', ttsLimiter);              // BUG-03: was unlimited -> unbounded OpenAI spend
 app.use('/save-custom-db', saveDbLimiter); // BUG-01: throttle writes to the shared DB
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
+app.use('/date-reply-suggestions', utilityLimiter); // called per tutor turn — lenient, not the expensive-AI budget
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -629,7 +630,7 @@ app.post('/realtime-session', async (req, res) => {
         // Scenario Director: role-play scenario + the learner's due SRS words to elicit.
         const { scenario, targetWords } = req.body || {};
         let instructions = TUTOR_INSTRUCTIONS;
-        if (scenario) instructions += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 240)}.`;
+        if (scenario) instructions += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 1200)}.`;
         if (Array.isArray(targetWords) && targetWords.length) {
             instructions += ` During the conversation, naturally create openings for the learner to use these words (weave them in, do not list them): ${targetWords.slice(0, 12).join('、')}.`;
         }
@@ -698,6 +699,41 @@ app.post('/tutor-debrief', async (req, res) => {
     } catch (error) {
         console.error('Debrief error:', error.message);
         res.status(502).json({ error: 'Debrief failed.' });
+    }
+});
+
+// === Date practice: suggest a few things the learner could say back ===
+// Given the date's last line (+ a little context), return 2-3 short, natural
+// replies the learner can read aloud. Keeps them simple, flirty, and in the
+// spirit of the roleplay. Falls back to an empty list on any error.
+app.post('/date-reply-suggestions', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    const { lastLine, history } = req.body || {};
+    if (!lastLine) return res.status(400).json({ error: 'Missing lastLine.' });
+    try {
+        const prompt =
+            `A male learner is on a playful, flirtatious practice date with a Chinese woman (roleplay). ` +
+            `Recent lines (most recent last):\n${String(history || '').slice(0, 1200)}\n\n` +
+            `She just said: "${String(lastLine).slice(0, 300)}".\n\n` +
+            `Suggest 2-3 things HE could say back, out loud, in simple spoken Mandarin. ` +
+            `Make them warm and a little bold/flirty but always respectful and non-explicit; vary them ` +
+            `(e.g. one answer, one playful/teasing, one question back). Keep each to one short sentence a beginner can pronounce. ` +
+            `Return STRICT JSON: {"suggestions":[{"zh":"<Chinese>","en":"<natural English>"}]}.`;
+        const c = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            temperature: 0.8,
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const data = JSON.parse(c.choices[0]?.message?.content || '{}');
+        const suggestions = (Array.isArray(data.suggestions) ? data.suggestions : [])
+            .filter(s => s && s.zh)
+            .slice(0, 3)
+            .map(s => ({ zh: String(s.zh).slice(0, 60), en: String(s.en || '').slice(0, 120) }));
+        res.json({ suggestions });
+    } catch (error) {
+        console.error('Date-suggestions error:', error.message);
+        res.status(502).json({ error: 'Suggestions failed.' });
     }
 });
 
