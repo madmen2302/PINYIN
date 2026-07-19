@@ -5987,29 +5987,39 @@ function ensureTutorModal() {
                 <h3>Voice Tutor</h3>
                 <button id="tutor-close" class="modal-btn">Close</button>
             </div>
-            <div id="tutor-scenarios" class="tutor-scenarios"></div>
-            <div id="tutor-date-panel" class="tutor-date-panel" style="display:none">
-                <label class="tutor-coach-toggle">
-                    <span class="tutor-coach-text">English coaching<small>She adds a quick English tip each turn</small></span>
-                    <span class="toggle-switch small"><input type="checkbox" id="tutor-coach-toggle"><span class="toggle-slider"></span></span>
-                </label>
-                <details id="tutor-cheatsheet" class="tutor-cheatsheet">
-                    <summary>💡 Cheat sheet — what to say</summary>
-                    <div id="tutor-cheatsheet-body"></div>
-                </details>
+            <button id="tutor-setup-toggle" class="tutor-setup-toggle" aria-expanded="true" aria-controls="tutor-setup">
+                <span class="tutor-setup-toggle-label">Hide options</span>
+                <span class="tutor-setup-chevron" aria-hidden="true">▴</span>
+            </button>
+            <div id="tutor-setup" class="tutor-setup">
+                <div id="tutor-scenarios" class="tutor-scenarios"></div>
+                <div id="tutor-date-panel" class="tutor-date-panel" style="display:none">
+                    <label class="tutor-coach-toggle">
+                        <span class="tutor-coach-text">English coaching<small>She adds a quick English tip each turn</small></span>
+                        <span class="toggle-switch small"><input type="checkbox" id="tutor-coach-toggle"><span class="toggle-slider"></span></span>
+                    </label>
+                    <details id="tutor-cheatsheet" class="tutor-cheatsheet">
+                        <summary>💡 Cheat sheet — what to say</summary>
+                        <div id="tutor-cheatsheet-body"></div>
+                    </details>
+                </div>
+                <div id="tutor-orb" class="tutor-orb"></div>
+                <div class="tutor-hint">🎧 Best with headphones — it stops the AI from hearing its own voice.</div>
             </div>
-            <div id="tutor-orb" class="tutor-orb"></div>
             <div id="tutor-status" class="tutor-status">Pick a scenario (or free chat), then tap start and speak in Chinese.</div>
             <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
-            <div class="tutor-hint">🎧 Best with headphones — it stops the AI from hearing its own voice.</div>
-            <div id="tutor-transcript" class="tutor-transcript"></div>
-            <div id="tutor-debrief" class="tutor-debrief"></div>
+            <div id="tutor-convo" class="tutor-convo">
+                <div id="tutor-transcript" class="tutor-transcript"></div>
+                <div id="tutor-debrief" class="tutor-debrief"></div>
+            </div>
             <audio id="tutor-audio" autoplay playsinline></audio>
         </div>`;
     document.body.appendChild(tutorModalEl);
     tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(true); tutorModalEl.classList.remove('active'); });
     tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => tutorActive ? stopTutor() : startTutor());
     tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) { stopTutor(true); tutorModalEl.classList.remove('active'); } });
+    tutorModalEl.querySelector('#tutor-setup-toggle').addEventListener('click', () =>
+        setTutorSetupCollapsed(!tutorModalEl.classList.contains('setup-collapsed')));
 
     const coachToggle = tutorModalEl.querySelector('#tutor-coach-toggle');
     coachToggle.checked = tutorEnglishCoaching;
@@ -6042,6 +6052,20 @@ function renderDateCheatsheet() {
     body.dataset.built = '1';
 }
 
+// Collapse the top setup block (modes, coaching, cheat sheet, orb) to give the
+// conversation the full panel. Auto-collapses when a call starts; re-openable
+// any time via the handle (e.g. to peek at the cheat sheet mid-date).
+function setTutorSetupCollapsed(collapsed) {
+    if (!tutorModalEl) return;
+    tutorModalEl.classList.toggle('setup-collapsed', collapsed);
+    const t = tutorModalEl.querySelector('#tutor-setup-toggle');
+    if (t) {
+        t.setAttribute('aria-expanded', String(!collapsed));
+        const label = t.querySelector('.tutor-setup-toggle-label');
+        if (label) label.textContent = collapsed ? 'Options & cheat sheet' : 'Hide options';
+    }
+}
+
 // Show the date-only helper panel (coaching toggle + cheat sheet) only for the
 // Flirt / date scenario. Kept visible during the call so it's there when needed.
 function updateDatePanel() {
@@ -6064,6 +6088,7 @@ function openVoiceTutor() {
     tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
     renderTutorScenarios();
     updateDatePanel();
+    setTutorSetupCollapsed(false); // start expanded so you can pick a scenario
     tutorModalEl.classList.add('active');
 }
 
@@ -6076,7 +6101,7 @@ async function startTutor() {
     tutorTranscriptLog = [];
     // On a date, weaving in random due SRS words would derail the roleplay.
     tutorTargetWords = isDateScenario() ? [] : gatherDueWords();
-    tutorModalEl.querySelector('#tutor-scenarios').style.display = 'none';
+    setTutorSetupCollapsed(true); // hand the whole panel to the conversation
     tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
     let scenarioPrompt = tutorScenario.prompt;
     if (isDateScenario() && tutorEnglishCoaching) {
@@ -6159,6 +6184,7 @@ function stopTutor(silent) {
         tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
         tutorModalEl.querySelector('#tutor-status').textContent = 'Conversation ended. Tap start to go again.';
         renderTutorScenarios();
+        setTutorSetupCollapsed(false); // reveal scenarios again for the next round
         runTutorDebrief(); // one bounded review pass over what was said
     }
 }

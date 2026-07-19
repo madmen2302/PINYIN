@@ -1106,12 +1106,37 @@
         .pitch-key.you::before { background: var(--accent-color); }
         .pitch-score { font-weight: 800; color: var(--accent-color); font-size: 1.05rem; }
 
-        /* Voice tutor */
-        .tutor-modal-content { max-width: 460px; text-align: center; }
-        .tutor-status { color: var(--text-secondary); margin: 1rem 0 1.5rem; min-height: 1.4rem; }
+        /* Voice tutor — fixed-height flex panel: collapsible setup on top, the
+           conversation grows to fill the rest. */
+        #tutor-modal .tutor-modal-content {
+            max-width: 460px; width: 92%;
+            height: min(88dvh, 780px);
+            display: flex; flex-direction: column; text-align: center;
+            background: var(--card-bg); border: 1px solid var(--border-hairline);
+            border-radius: 20px; box-shadow: var(--shadow-md);
+            padding: 1rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
+            box-sizing: border-box; overflow: hidden;
+        }
+        .tutor-modal-content .game-topbar { flex: 0 0 auto; margin-bottom: 0.5rem; }
+        .tutor-modal-content .speak-record-btn { flex: 0 0 auto; }
+        .tutor-setup-toggle {
+            flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+            width: 100%; margin-bottom: 0.5rem; padding: 0.4rem; cursor: pointer;
+            background: var(--input-bg); border: 1px solid var(--border-hairline); border-radius: 999px;
+            color: var(--text-secondary); font-size: 0.8rem; font-weight: 600;
+        }
+        .tutor-setup-chevron { transition: transform 0.25s ease; }
+        .setup-collapsed .tutor-setup-chevron { transform: rotate(-180deg); }
+        #tutor-setup {
+            flex: 0 1 auto; overflow-y: auto; max-height: 46vh;
+            transition: max-height 0.3s ease, opacity 0.25s ease, margin 0.3s ease;
+        }
+        .setup-collapsed #tutor-setup { max-height: 0; opacity: 0; margin: 0; pointer-events: none; }
+        .tutor-convo { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; }
+        .tutor-status { color: var(--text-secondary); margin: 0.4rem 0 0.7rem; min-height: 1.4rem; flex: 0 0 auto; }
         .tutor-hint { color: var(--text-subtle); font-size: 0.75rem; margin: 0.6rem 0 0; }
         .tutor-orb {
-            width: 120px; height: 120px; margin: 1.5rem auto 0.5rem; border-radius: 50%;
+            width: 96px; height: 96px; margin: 0.75rem auto 0.5rem; border-radius: 50%;
             background: var(--accent-grad); opacity: 0.9; box-shadow: 0 8px 30px var(--accent-glow);
         }
         .tutor-orb.active { animation: tutor-breathe 2.4s ease-in-out infinite; }
@@ -1119,7 +1144,7 @@
             0%,100% { transform: scale(1); box-shadow: 0 8px 30px var(--accent-glow); }
             50% { transform: scale(1.12); box-shadow: 0 12px 46px var(--accent-glow); }
         }
-        .tutor-transcript { max-height: 260px; overflow-y: auto; text-align: left; margin: 1.25rem 0 0; display: flex; flex-direction: column; gap: 0.6rem; }
+        .tutor-transcript { text-align: left; display: flex; flex-direction: column; gap: 0.6rem; }
         .tutor-transcript:empty { display: none; }
         .tutor-line { padding: 0.6rem 0.85rem; border-radius: var(--radius-sm); background: var(--input-bg); border: 1px solid var(--border-hairline); border-left-width: 3px; }
         .tutor-line.you { border-left-color: var(--accent-1); }
