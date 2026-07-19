@@ -6107,26 +6107,12 @@ async function startTutor() {
         });
         tutorStream.getTracks().forEach(t => tutorPc.addTrack(t, tutorStream));
 
-        // 4. Data channel (events). On open, lock transcription to Chinese and
-        // give a calmer pause before the model answers, then greet the learner.
+        // 4. Data channel (events). Greet the learner once it opens. (Transcription
+        // language + turn-detection tuning are configured server-side in
+        // /realtime-session; sending a session.update here before the first
+        // response could suppress the greeting, so we don't.)
         const dc = tutorPc.createDataChannel('oai-events');
-        dc.onopen = () => {
-            try {
-                dc.send(JSON.stringify({
-                    type: 'session.update',
-                    session: {
-                        type: 'realtime',
-                        audio: {
-                            input: {
-                                transcription: { model: 'whisper-1', language: 'zh' },
-                                turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 1200 }
-                            }
-                        }
-                    }
-                }));
-                dc.send(JSON.stringify({ type: 'response.create' }));
-            } catch (_) { /* ignore */ }
-        };
+        dc.onopen = () => { try { dc.send(JSON.stringify({ type: 'response.create' })); } catch (_) { /* ignore */ } };
         dc.onmessage = (e) => { try { handleTutorEvent(JSON.parse(e.data)); } catch (_) { /* ignore non-JSON */ } };
 
         // 5. SDP offer -> OpenAI Realtime -> answer.
