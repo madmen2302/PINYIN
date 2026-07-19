@@ -5935,9 +5935,10 @@ function ensureTutorModal() {
             <div id="tutor-orb" class="tutor-orb"></div>
             <div id="tutor-status" class="tutor-status">Pick a scenario (or free chat), then tap start and speak in Chinese.</div>
             <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
+            <div class="tutor-hint">🎧 Best with headphones — it stops the AI from hearing its own voice.</div>
             <div id="tutor-transcript" class="tutor-transcript"></div>
             <div id="tutor-debrief" class="tutor-debrief"></div>
-            <audio id="tutor-audio" autoplay></audio>
+            <audio id="tutor-audio" autoplay playsinline></audio>
         </div>`;
     document.body.appendChild(tutorModalEl);
     tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(true); tutorModalEl.classList.remove('active'); });
@@ -6027,20 +6028,47 @@ async function startTutor() {
         // 2. Peer connection + remote audio playback.
         tutorPc = new RTCPeerConnection();
         const audioEl = tutorModalEl.querySelector('#tutor-audio');
-        tutorPc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+        tutorPc.ontrack = (e) => {
+            audioEl.srcObject = e.streams[0];
+            // iOS often won't start a WebRTC stream on autoplay alone — nudge it.
+            const p = audioEl.play();
+            if (p && p.catch) p.catch(() => { /* autoplay/gesture will cover it */ });
+        };
         tutorPc.onconnectionstatechange = () => {
             if (tutorPc && ['failed', 'disconnected', 'closed'].includes(tutorPc.connectionState)) {
                 if (tutorActive) { status.textContent = 'Connection lost.'; stopTutor(); }
             }
         };
 
-        // 3. Microphone.
-        tutorStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 3. Microphone. Echo cancellation is CRITICAL: without it the mic hears
+        // the tutor's own voice through the speaker, which makes the model
+        // interrupt itself (cutting its audio), fires replies early, and feeds
+        // its own echo into transcription (gibberish). Headphones help even more.
+        tutorStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
         tutorStream.getTracks().forEach(t => tutorPc.addTrack(t, tutorStream));
 
-        // 4. Data channel (events). Greet the learner once it opens.
+        // 4. Data channel (events). On open, lock transcription to Chinese and
+        // give a calmer pause before the model answers, then greet the learner.
         const dc = tutorPc.createDataChannel('oai-events');
-        dc.onopen = () => { try { dc.send(JSON.stringify({ type: 'response.create' })); } catch (_) { /* ignore */ } };
+        dc.onopen = () => {
+            try {
+                dc.send(JSON.stringify({
+                    type: 'session.update',
+                    session: {
+                        type: 'realtime',
+                        audio: {
+                            input: {
+                                transcription: { model: 'whisper-1', language: 'zh' },
+                                turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 1200 }
+                            }
+                        }
+                    }
+                }));
+                dc.send(JSON.stringify({ type: 'response.create' }));
+            } catch (_) { /* ignore */ }
+        };
         dc.onmessage = (e) => { try { handleTutorEvent(JSON.parse(e.data)); } catch (_) { /* ignore non-JSON */ } };
 
         // 5. SDP offer -> OpenAI Realtime -> answer.

@@ -645,10 +645,11 @@ app.post('/realtime-session', async (req, res) => {
                     audio: {
                         input: {
                             // Transcribe the learner's speech so the client can show it.
-                            transcription: { model: 'whisper-1' },
+                            // Lock to Chinese — auto-detect mangles a beginner's speech.
+                            transcription: { model: 'whisper-1', language: 'zh' },
                             // Wait for a clear pause before responding, so it doesn't
                             // interrupt or rush the learner.
-                            turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 900 }
+                            turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 1200 }
                         },
                         // Slightly slower, calmer speech for a beginner.
                         output: { voice: REALTIME_VOICE, speed: 0.85 }
