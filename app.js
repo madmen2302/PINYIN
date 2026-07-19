@@ -3862,7 +3862,9 @@ async function renderCardFace(target, types, card, faceKey, token) {
     target.appendChild(contentWrapper);
 
     // Audio button (M3C): speak the character aloud without flipping the card.
-    if (card && card.char) {
+    // Front face only — one per card. (Adding it to both faces showed two: the
+    // back face's button bleeds through the 3D flip on iOS.)
+    if (card && card.char && faceKey === 'front') {
         const fcAudio = document.createElement('button');
         fcAudio.type = 'button';
         fcAudio.className = 'fc-audio-btn';
@@ -3945,13 +3947,19 @@ async function renderCardFace(target, types, card, faceKey, token) {
         const dbExplanationHtml = dbData?.equation ? `<div class="radical-explanation"><span></span><p>${escapeHtml(dbData.equation)}</p></div>` : '';
         const dbMnemonicHtml = dbData?.mnemonic ? `<div class="radical-mnemonic"><span></span><p>${escapeHtml(dbData.mnemonic)}</p></div>` : '';
 
+        // Fall back to live pinyin + dictionary gloss when the card stores none
+        // (e.g. the preloaded HSK decks keep cards minimal) — otherwise the
+        // flipped answer is blank except for the "Tap AI Insight" hint.
+        const backPinyin = card.pinyin || (window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(card.char, { toneType: 'symbol' }) : '');
+        const backDef = card.def || (dictionary?.[card.char] || '').replace(/\[[^\]]*\]/g, '').trim();
+
         // NEW: Restructured HTML for a cleaner look
         const detailedHtml = `
             <div class="flashcard-back-content">
                 <div class="flashcard-back-char" style="font-size: 200%; font-weight: bold;">${card.char}</div>
                 <div class="flashcard-back-details">
-                    <div class="radical-pinyin">${escapeHtml(card.pinyin || '')}</div>
-                    <div class="radical-def">${escapeHtml(card.def || '')}</div>
+                    <div class="radical-pinyin">${escapeHtml(backPinyin)}</div>
+                    <div class="radical-def">${escapeHtml(backDef)}</div>
                     ${userMnemonicHtml}
                     <div class="radical-ai">
                         ${dbExplanationHtml}
