@@ -606,6 +606,38 @@ micFab.addEventListener('click', () => {
 const stopFab = document.getElementById('stop-fab');
 stopFab.addEventListener('click', stopAllAudio);
 
+// When "Chinese only" is on, pull just the 汉字 out of a mixed block (markdown,
+// pinyin, English) so the reader isn't fed pinyin or translation lines. Works
+// line by line: drop any line that has no Chinese, and within a kept line keep
+// only Han characters and CJK punctuation, then guarantee a sentence terminal.
+function extractChineseText(text) {
+    const HAN = /[㐀-鿿]/;
+    return (text || '').split(/\r?\n/)
+        .map(line => {
+            if (!HAN.test(line)) return '';
+            let zh = line
+                .replace(/[^㐀-鿿　-〿！-･]/g, '') // keep Han + CJK/fullwidth punctuation
+                .replace(/[　\s]+/g, '')                                // drop stray spaces
+                .replace(/（）|【】|《》|「」|『』|〈〉/g, '')                  // drop brackets emptied by stripping
+                .replace(/([。！？，、；：])[。！？，、；：]+/g, '$1')         // collapse doubled punctuation
+                .replace(/^[。！？，、；：·]+/, '');                          // no leading punctuation
+            if (!zh || !HAN.test(zh)) return '';
+            if (!/[。！？]$/.test(zh)) zh += '。';                           // end on a sentence terminal
+            return zh;
+        })
+        .filter(Boolean)
+        .join('');
+}
+
+// Persisted "Chinese only" toggle beside the input.
+const chineseOnlyToggle = document.getElementById('chinese-only-toggle');
+if (chineseOnlyToggle) {
+    try { chineseOnlyToggle.checked = localStorage.getItem('chineseOnlyMode') === 'true'; } catch (_) { /* ignore */ }
+    chineseOnlyToggle.addEventListener('change', () => {
+        try { localStorage.setItem('chineseOnlyMode', String(chineseOnlyToggle.checked)); } catch (_) { /* ignore */ }
+    });
+}
+
 if (textInput) {
     textInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -613,7 +645,16 @@ if (textInput) {
             let text = textInput.value.trim();
             if (!text) return;
             if (!dictionary || !segmentit) return;
-            text = text.replace(/\n/g, '。');
+            if (chineseOnlyToggle && chineseOnlyToggle.checked) {
+                const zh = extractChineseText(text);
+                if (!zh) {
+                    finalOutput.innerHTML = `<p class="info">No Chinese text found in that paste.</p>`;
+                    return;
+                }
+                text = zh;
+            } else {
+                text = text.replace(/\n/g, '。');
+            }
             processingOverlay.classList.add('visible');
             statsContent.innerHTML = "";
             processTranscription(text);

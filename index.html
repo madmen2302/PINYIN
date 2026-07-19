@@ -327,6 +327,17 @@
         }
         #text-input:focus { outline: none; background: var(--card-bg); border-color: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-glow); }
         
+        #chinese-only-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            margin-top: 10px; padding: 10px 14px;
+            border: 1px solid var(--border-hairline); border-radius: var(--radius-md);
+            background: var(--card-bg);
+        }
+        #chinese-only-row .chinese-only-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        #chinese-only-row .chinese-only-title { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
+        #chinese-only-row .chinese-only-sub { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.2; }
+        #chinese-only-row .toggle-switch { flex-shrink: 0; }
+
         #waveContainer { display: none; align-items: center; justify-content: center; height: 150px; gap: 6px; margin-bottom: 1rem; flex-shrink: 0; }
         #waveContainer.show { display: flex; }
         .bar { width: 6px; background: var(--accent-color); border-radius: 3px; height: 5px; transition: height 0.05s; }
@@ -1382,6 +1393,16 @@
                         <textarea id="text-input" rows="4" lang="zh" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Paste text here... Press Enter to process."></textarea>
                          <div id="waveContainer" class="wave">
                             <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                        </div>
+                        <div id="chinese-only-row">
+                            <div class="chinese-only-text">
+                                <span class="chinese-only-title">Chinese only</span>
+                                <span class="chinese-only-sub">Strip pinyin &amp; English — process just the 汉字</span>
+                            </div>
+                            <label class="toggle-switch small">
+                                <input type="checkbox" id="chinese-only-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
                     </div>
                     <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display:none;">
