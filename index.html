@@ -15,8 +15,6 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='52' font-size='72' text-anchor='middle' dominant-baseline='central'%3E%E6%8B%BC%3C/text%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://unpkg.com" crossorigin />
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <title>Pinyin Reader — Chinese Text Breakdown</title>
 
     <style>
@@ -1844,9 +1842,12 @@
     </div>
 
     <!-- Defer loading of scripts to prevent render-blocking -->
-    <script defer src="https://unpkg.com/pinyin-pro"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/segmentit@2.0.3/dist/umd/segmentit.min.js"></script>
+    <!-- Self-hosted (was unpkg/jsdelivr): keeps the app working when a content
+         blocker, Lockdown Mode, or the GFW blocks third-party CDNs, and lets the
+         PWA run without external requests. -->
+    <script defer src="/vendor/pinyin-pro.js"></script>
+    <script defer src="/vendor/hanzi-writer.min.js"></script>
+    <script defer src="/vendor/segmentit.min.js"></script>
     <script defer src="app.js"></script>
 
 </body>
