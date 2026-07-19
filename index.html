@@ -662,7 +662,10 @@
         #flashcard { width: 100%; flex-grow: 1; perspective: 1000px; cursor: pointer; margin-bottom: 1rem; position: relative; min-height: 300px; }
         .flashcard-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
         #flashcard.flipped .flashcard-inner { transform: rotateY(180deg); }
-        .flashcard-face { position: absolute; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--card-bg); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); padding: 1rem; text-align: center; }
+        /* border-box so width/height:100% INCLUDE the 1rem padding — otherwise the
+           face is 2rem wider & taller than the card, spilling past the right edge
+           and down onto the Flip / AI Insight buttons. */
+        .flashcard-face { box-sizing: border-box; position: absolute; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--card-bg); border-radius: 20px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); padding: 1rem; text-align: center; }
         #flashcard-back { transform: rotateY(180deg); }
         .flashcard-actions-bar { margin-top: auto; display: flex; gap: 0.5rem; width: 100%; justify-content: center; padding-top: 1rem; border-top: 1px solid var(--border-color); }
         .flashcard-action-btn { background: transparent; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.8rem; font-size: 0.75rem; cursor: pointer; color: var(--text-secondary); transition: all 0.2s; }
@@ -698,8 +701,12 @@
         .fc-progress-fill.pulse { filter: brightness(1.3); }
         #flashcard-counter { font-size: 0.8rem; color: var(--text-secondary); }
         #fc-streak-chip { font-size: 0.85rem; font-weight: 700; color: var(--danger-color); background: color-mix(in srgb, var(--danger-color) 13%, transparent); border-radius: 999px; padding: 0.1rem 0.55rem; }
-        .flashcard-face-part.char { font-size: clamp(4rem, 16vw, 7rem); }
-        #flashcard { max-height: 62vh; }
+        .flashcard-face-part.char { font-size: clamp(3.2rem, 13vw, 5.6rem); }
+        /* Cap the card to a fraction of the DYNAMIC viewport (dvh, not vh) so it
+           can't grow under iOS Safari's toolbar and crowd the Flip / AI Insight
+           buttons. min-height:0 lets it shrink on short screens; box-sizing keeps
+           it from spilling past the right edge. */
+        #flashcard { max-height: 50dvh; min-height: 0; max-width: 100%; box-sizing: border-box; }
         /* Grade bar: Again / Got it pair, skip demoted */
         #flashcard-test-controls { flex-direction: column; gap: 0.6rem; }
         .fc-grade-row { display: flex; gap: 0.75rem; }
