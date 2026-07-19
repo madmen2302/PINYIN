@@ -156,6 +156,7 @@ const resetPanelsBtn = document.getElementById('reset-panels-btn'); // === NEW =
 let isListening = false;
 let mediaRecorder = null;
 let dictionary = null;
+let hskData = null; // { word: { l: level, g: pos } } — used to seed HSK decks
 let segmentit = null;
 let hanziWriter = null;
 let fullAudioChunks = [];
@@ -507,9 +508,10 @@ function applyDictionaryCorrections(dict) {
 async function loadDictionaryAndLibs() {
     try {
         // === OPTIMIZATION: Fetch all initial data in parallel ===
-        const [dictResult, customDbResult] = await Promise.allSettled([
+        const [dictResult, customDbResult, hskResult] = await Promise.allSettled([
             fetch('./dictionary.json'),
-            fetch('./custom-db.json')
+            fetch('./custom-db.json'),
+            fetch('./hsk.json')
         ]);
 
         if (dictResult.status === 'fulfilled' && dictResult.value.ok) {
@@ -518,6 +520,12 @@ async function loadDictionaryAndLibs() {
             console.log('✅ Dictionary loaded.');
         } else {
             console.error('❌ Failed to load dictionary.json.');
+        }
+
+        if (hskResult.status === 'fulfilled' && hskResult.value.ok) {
+            try { hskData = await hskResult.value.json(); } catch (_) { hskData = null; }
+        } else {
+            console.warn('⚠️ Could not load hsk.json — HSK decks will not be seeded.');
         }
 
         if (customDbResult.status === 'fulfilled' && customDbResult.value.ok) {
@@ -534,6 +542,7 @@ async function loadDictionaryAndLibs() {
         console.log('✅ Dictionary and Segmenter loaded.');
         loadHistory(); // This now also loads global stats
         loadFlashcards(); // === NEW ===
+        seedHskDecks(); // preload HSK 1–6 decks on first run
         populateVoiceList();
         voiceSelector.addEventListener('change', () => { try { localStorage.setItem('preferredVoice', voiceSelector.value); } catch (_) { /* ignore */ } });
         if (speedSlider) {
@@ -3208,6 +3217,50 @@ function loadFlashcards() {
     renderDeckManager();
 }
 
+// Preload HSK 1–6 as ready-to-study decks on first run. Cards are stored
+// minimally (just the word) — pinyin and definitions resolve live from
+// pinyinPro + dictionary.json, so this stays small in localStorage. New cards
+// get a far-future `due` so they count as "new" (studyable) without flooding
+// the "due today" badge; the first review reschedules them from now.
+const HSK_LEVELS = [1, 2, 3, 4, 5, 6];
+const HSK_NEW_DUE = 4102444800000; // ~year 2100 sentinel — "not due yet"
+function seedHskDecks() {
+    let seeded = false;
+    try { seeded = localStorage.getItem('hskDecksSeeded') === 'true'; } catch (_) { /* ignore */ }
+    if (seeded) return;                 // seed only once, ever (respects later deletions)
+    if (!hskData || typeof hskData !== 'object') return; // hsk.json missing — retry next launch
+
+    const existingIds = new Set(flashcardStore.decks.map(d => d.id));
+    const byLevel = {};
+    for (const [word, info] of Object.entries(hskData)) {
+        const l = info && info.l;
+        if (!HSK_LEVELS.includes(l)) continue;
+        (byLevel[l] = byLevel[l] || []).push(word);
+    }
+    const now = Date.now();
+    let added = 0;
+    HSK_LEVELS.forEach(l => {
+        const id = `hsk-${l}`;
+        if (existingIds.has(id)) return;
+        const words = byLevel[l] || [];
+        if (!words.length) return;
+        flashcardStore.decks.push({
+            id, name: `HSK ${l}`, preset: true, createdAt: now,
+            cards: words.map(w => ({
+                char: w, pinyin: '', def: '', sentence: '', id: `${id}-${w}`,
+                stats: { ...createEmptyStats(), due: HSK_NEW_DUE }, suspended: false, createdAt: now
+            }))
+        });
+        added++;
+    });
+    try { localStorage.setItem('hskDecksSeeded', 'true'); } catch (_) { /* ignore */ }
+    if (added) {
+        if (!flashcardStore.activeDeckId) flashcardStore.activeDeckId = flashcardStore.decks[0]?.id || null;
+        saveFlashcards();
+        renderDeckManager();
+    }
+}
+
 function normalizeFlashcardStore() {
     if (!flashcardStore || typeof flashcardStore !== 'object') {
         flashcardStore = { decks: [], activeDeckId: null };
@@ -3566,8 +3619,8 @@ function renderDeckCardTable(deck) {
             <div class="deck-card-row ${card.suspended ? 'suspended' : ''}" data-card-id="${card.id}">
                 <div class="deck-card-char">${card.char}</div>
                 <div class="deck-card-info">
-                    <div class="deck-card-pinyin">${escapeHtml(card.pinyin || '')}</div>
-                    <div class="deck-card-meaning">${escapeHtml(card.def || '')}</div>
+                    <div class="deck-card-pinyin">${escapeHtml(card.pinyin || (window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(card.char, { toneType: 'symbol' }) : ''))}</div>
+                    <div class="deck-card-meaning">${escapeHtml(card.def || (dictionary && dictionary[card.char] ? dictionary[card.char].split(';')[0].split('/')[0].replace(/\[.*?\]|\(.*?\)/g, '').trim() : ''))}</div>
                 </div>
                 <div class="deck-card-actions">
                     <span class="deck-card-due">${card.suspended ? 'Paused' : dueLabel}${accuracy === null ? '' : ` · ${accuracy}%`}</span>
@@ -3694,7 +3747,7 @@ function buildSessionCards(deck, options = {}) {
         const attempts = (stats.correct || 0) + (stats.incorrect || 0);
         return stats.due <= now || attempts === 0;
     });
-    return filtered
+    const sorted = filtered
         .sort((a, b) => {
             const aAttempts = (a.stats.correct || 0) + (a.stats.incorrect || 0);
             const bAttempts = (b.stats.correct || 0) + (b.stats.incorrect || 0);
@@ -3702,6 +3755,11 @@ function buildSessionCards(deck, options = {}) {
             if (bAttempts === 0 && aAttempts !== 0) return 1;
             return (a.stats.due || 0) - (b.stats.due || 0);
         });
+    // Cap a single sitting to a focused batch (due first, then new). Big decks
+    // like HSK levels have hundreds of cards; you just start another session for
+    // the next batch. Small decks are unaffected.
+    const SESSION_LIMIT = 30;
+    return sorted.slice(0, SESSION_LIMIT);
 }
 
 function startFlashcardSession(mode = 'study', options = {}) {
