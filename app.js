@@ -1483,7 +1483,44 @@ async function sendBlobToWhisper(blob, prompt = "") {
     if (!response.ok) throw new Error(data.error || 'Server transcription error');
     return data;
 }
-async function translateText(text, targetLanguage) { const url = `${backendUrl}/translate`; try { const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, target_lang: targetLanguage }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Server error'); return data.translations[0].text; } catch (error) { throw error; } }
+// Run `worker` over `items` with at most `limit` requests in flight at once.
+// A big paste can split into hundreds of fragments; firing them all in parallel
+// trips the translation rate limit (a flood of 429s) and used to crash the
+// whole render. This keeps the burst bounded.
+async function runWithConcurrency(items, limit, worker) {
+    let i = 0;
+    const runner = async () => {
+        while (i < items.length) {
+            const idx = i++;
+            await worker(items[idx], idx);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runner));
+}
+
+async function translateText(text, targetLanguage) {
+    const url = `${backendUrl}/translate`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, target_lang: targetLanguage })
+    });
+    // Read the body as text and parse it ourselves. A rate-limit (429) or proxy
+    // error can return a PLAIN-TEXT body; calling response.json() on that throws
+    // a cryptic SyntaxError ("The string did not match the expected pattern." on
+    // iOS Safari, "...is not valid JSON" on Chrome) that masks the real cause.
+    const raw = await response.text();
+    let data = null;
+    if (raw) { try { data = JSON.parse(raw); } catch (_) { /* non-JSON error body */ } }
+    if (!response.ok) {
+        const msg = (data && data.error)
+            || (response.status === 429
+                ? 'Translation service is busy (rate limited). Wait a moment, then try again — or paste a smaller chunk of text.'
+                : (raw && raw.trim().slice(0, 140)) || `Translation error ${response.status}`);
+        throw new Error(msg);
+    }
+    return data?.translations?.[0]?.text ?? '';
+}
 
 // === OPTIMIZED processTranscription ===
 async function processTranscription(text, languageHint = null, useEnhancedDefs = false, enhancedDefsData = null) {
@@ -1508,23 +1545,25 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
 
         // Split sentences but keep delimiters
         const sentences = finalChineseText.match(/[^，。？！]+[，。？！]?/g) || [finalChineseText];
-        
-        // === OPTIMIZATION: Translate all sentences in parallel ===
-        const translationPromises = sentences
-            .filter(s => s.trim() !== "")
-            .map(s => translateText(s.trim(), 'EN'));
-        
-        // Use Promise.allSettled to handle individual translation failures gracefully
-        const results = await Promise.allSettled(translationPromises);
-        const translations = results.map(res => res.status === 'fulfilled' ? res.value : '[Translation Failed]');
-        // ========================================================
 
-        let transIndex = 0;
+        // Translate the UNIQUE sentences with a bounded number of requests in
+        // flight. Dedup means repeated lines translate once; the concurrency cap
+        // means a huge paste no longer fires hundreds of simultaneous requests
+        // (which was tripping the rate limit and failing the whole breakdown).
+        const uniqueSentences = [...new Set(
+            sentences.map(s => s.trim()).filter(s => s !== "")
+        )];
+        const translationMap = new Map();
+        await runWithConcurrency(uniqueSentences, 6, async (s) => {
+            try { translationMap.set(s, await translateText(s, 'EN')); }
+            catch (_) { translationMap.set(s, '[Translation Unavailable]'); }
+        });
+        const translateSentence = (s) => translationMap.get(s.trim()) || "[Translation Unavailable]";
 
         for (const sentence of sentences) {
             if (sentence.trim() === "") continue;
 
-            const sentenceTranslation = translations[transIndex++] || "[Translation Unavailable]";
+            const sentenceTranslation = translateSentence(sentence);
             const escapedSentence = sentence.trim().replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
             const words = segmentit.doSegment(sentence, { simple: true });
@@ -1632,7 +1671,13 @@ async function processTranscription(text, languageHint = null, useEnhancedDefs =
 
         if (autoPronounceToggle.checked && speechQueue.length > 0 && !useEnhancedDefs) { speakFromQueue(); }
 
-        const finalEnglishText = await translateText(finalChineseText, 'EN');
+        // Build the full-paragraph English by joining the per-sentence
+        // translations we already have — avoids firing one more whole-document
+        // request (another chance to hit the rate limit) and can't fail here.
+        const finalEnglishText = sentences
+            .filter(s => s.trim() !== "")
+            .map(s => translateSentence(s))
+            .join(' ');
         const finalPinyin = window.pinyinPro ? window.pinyinPro.pinyin(finalChineseText, { toneType: 'symbol' }) : '';
         
         const fullParagraphOutput = `<div class="full-paragraph-output">
