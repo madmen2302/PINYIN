@@ -180,6 +180,8 @@ app.use('/tts', ttsLimiter);              // BUG-03: was unlimited -> unbounded 
 app.use('/save-custom-db', saveDbLimiter); // BUG-01: throttle writes to the shared DB
 app.use('/translate', utilityLimiter); // Apply lenient limit to utility endpoint
 app.use('/date-reply-suggestions', utilityLimiter); // called per tutor turn — lenient, not the expensive-AI budget
+app.use('/tutor-chat', utilityLimiter);         // text tutor: one cheap chat.completions per typed turn
+app.use('/tutor-suggestions', utilityLimiter);  // text tutor: reply-suggestion chips per turn
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -616,6 +618,8 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
 // open a WebRTC session directly with OpenAI's Realtime API.
 const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime-2.1';
 const REALTIME_VOICE = process.env.REALTIME_VOICE || 'marin';
+// Text-chat model for the typed tutor and reply suggestions (cheap, fast).
+const CHAT_MODEL = process.env.CHAT_MODEL || 'gpt-4o-mini';
 const TUTOR_INSTRUCTIONS =
     'You are a warm, patient Mandarin Chinese conversation tutor for a beginner learner. ' +
     'CRITICAL RULES: (1) Speak SLOWLY and clearly. (2) Keep every reply to ONE short, simple sentence — never a paragraph. ' +
@@ -734,6 +738,79 @@ app.post('/date-reply-suggestions', async (req, res) => {
         res.json({ suggestions });
     } catch (error) {
         console.error('Date-suggestions error:', error.message);
+        res.status(502).json({ error: 'Suggestions failed.' });
+    }
+});
+
+// === Text tutor: one typed conversation turn ===
+// The typed sibling of the voice tutor (/realtime-session). Same persona and
+// scenario system, but the client sends the running message history and we
+// return the tutor's next short Chinese line. Stateless per request.
+app.post('/tutor-chat', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    const { scenario, targetWords, messages } = req.body || {};
+    if (!Array.isArray(messages)) return res.status(400).json({ error: 'Missing messages.' });
+    try {
+        let system = TUTOR_INSTRUCTIONS +
+            ' You are chatting by TEXT, so ignore any spoken-pacing notes: still reply in ONE short, simple Chinese sentence, then ask at most one easy question. Reply in Chinese characters only (no pinyin, no English) unless the learner is clearly stuck.';
+        if (scenario) system += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 1200)}.`;
+        if (Array.isArray(targetWords) && targetWords.length) {
+            system += ` Naturally create openings for the learner to use these words (weave them in, do not list them): ${targetWords.slice(0, 12).join('、')}.`;
+        }
+        // Keep only the recent turns to bound tokens; roles are 'user'/'assistant'.
+        const history = messages
+            .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+            .slice(-20)
+            .map(m => ({ role: m.role, content: String(m.content).slice(0, 500) }));
+        const c = await openai.chat.completions.create({
+            model: CHAT_MODEL,
+            temperature: 0.7,
+            max_tokens: 120,
+            messages: [{ role: 'system', content: system }, ...history]
+        });
+        const zh = (c.choices[0]?.message?.content || '').trim();
+        if (!zh) return res.status(502).json({ error: 'Empty reply.' });
+        res.json({ zh });
+    } catch (error) {
+        console.error('Tutor-chat error:', error.message);
+        res.status(502).json({ error: 'Tutor chat failed.' });
+    }
+});
+
+// === Text tutor: 2-3 suggested replies the learner could type back ===
+// Generalizes /date-reply-suggestions to every scenario. Given the running
+// history, return short, in-character things the LEARNER could say next.
+app.post('/tutor-suggestions', async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
+    const { scenario, messages } = req.body || {};
+    if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: 'Missing messages.' });
+    try {
+        const transcript = messages
+            .filter(m => m && typeof m.content === 'string')
+            .slice(-8)
+            .map(m => `${m.role === 'assistant' ? 'Tutor' : 'You'}: ${m.content}`)
+            .join('\n');
+        const prompt =
+            `A beginner is practicing a Mandarin conversation by text.` +
+            (scenario ? ` Scenario/role: ${String(scenario).slice(0, 600)}.` : '') +
+            `\n\nRecent turns (most recent last):\n${transcript.slice(0, 1400)}\n\n` +
+            `Suggest 2-3 short, natural things the LEARNER ("You") could say next, in simple spoken Mandarin a beginner can manage. ` +
+            `Vary them (e.g. one direct answer, one follow-up question, one reaction). Stay in the scenario. ` +
+            `Return STRICT JSON: {"suggestions":[{"zh":"<Chinese>","en":"<natural English>"}]}.`;
+        const c = await openai.chat.completions.create({
+            model: CHAT_MODEL,
+            temperature: 0.8,
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }]
+        });
+        const data = JSON.parse(c.choices[0]?.message?.content || '{}');
+        const suggestions = (Array.isArray(data.suggestions) ? data.suggestions : [])
+            .filter(s => s && s.zh)
+            .slice(0, 3)
+            .map(s => ({ zh: String(s.zh).slice(0, 60), en: String(s.en || '').slice(0, 120) }));
+        res.json({ suggestions });
+    } catch (error) {
+        console.error('Tutor-suggestions error:', error.message);
         res.status(502).json({ error: 'Suggestions failed.' });
     }
 });

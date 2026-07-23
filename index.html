@@ -1190,6 +1190,54 @@
         .tutor-correction .c-better { color: var(--success-color); font-weight: 600; }
         .tutor-correction .c-note { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem; }
 
+        /* ---- Voice / Text mode switch ---- */
+        .tutor-mode-switch { display: flex; gap: 4px; padding: 4px; margin: 0.4rem auto 0.2rem; width: fit-content;
+            background: var(--input-bg); border: 1px solid var(--border-hairline); border-radius: 999px; }
+        .tutor-mode-btn { font-size: 0.85rem; font-weight: 600; padding: 0.35rem 0.95rem; border-radius: 999px;
+            border: none; background: transparent; color: var(--text-secondary); cursor: pointer; transition: all 0.15s var(--ease-spring); }
+        .tutor-mode-btn.active { background: var(--accent-color); color: #fff; }
+        /* Show the right surface per mode. */
+        #tutor-modal.text-mode .tutor-voice-only { display: none; }
+        #tutor-textchat { display: none; }
+        #tutor-modal.text-mode #tutor-textchat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+        /* Once a typed chat is live, the Start button gives way to the input row. */
+        #tutor-modal.text-mode.chatting #tutor-toggle { display: none; }
+        #tutor-modal.text-mode:not(.chatting) .tutor-input-row { display: none; }
+
+        /* ---- Text chat transcript ---- */
+        .tutor-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.55rem;
+            padding: 0.25rem; margin-top: 0.5rem; }
+        .tutor-msg { max-width: 85%; padding: 0.5rem 0.7rem; border-radius: var(--radius-md); text-align: left; line-height: 1.5; }
+        .tutor-msg-you { align-self: flex-end; background: var(--accent-color); color: #fff; }
+        .tutor-msg-you .rd-char rt { color: rgba(255,255,255,0.85); }
+        .tutor-msg-ai { align-self: flex-start; background: var(--card-bg); border: 1px solid var(--border-hairline); color: var(--text-main); }
+        .tutor-msg-sys { align-self: center; max-width: 100%; font-size: 0.82rem; color: var(--danger-color); background: none; padding: 0.2rem; text-align: center; }
+        .tutor-msg-head { display: flex; justify-content: flex-end; margin-bottom: 0.1rem; }
+        .tutor-msg-play { background: none; border: none; cursor: pointer; font-size: 0.95rem; padding: 0 2px; opacity: 0.75; }
+        .tutor-msg-play:hover { opacity: 1; }
+        .tutor-msg-zh { font-size: 1.3rem; }
+        .tutor-msg-zh .rd-char rt { font-size: 0.62em; }
+        .tutor-msg-en { display: none; margin-top: 0.35rem; font-size: 0.85rem; font-style: italic; color: var(--text-secondary);
+            border-top: 1px dashed var(--border-hairline); padding-top: 0.3rem; }
+        .tutor-msg-ai.show-en .tutor-msg-en { display: block; }
+        /* Typing indicator */
+        .tutor-typing { display: flex; gap: 4px; align-items: center; }
+        .tutor-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-subtle); animation: tutorBlink 1.2s infinite both; }
+        .tutor-dot:nth-child(2) { animation-delay: 0.2s; }
+        .tutor-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes tutorBlink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+        /* ---- Text input row ---- */
+        .tutor-input-row { display: flex; align-items: flex-end; gap: 6px; margin-top: 0.5rem;
+            padding-bottom: env(safe-area-inset-bottom); }
+        .tutor-input { flex: 1 1 auto; resize: none; max-height: 120px; padding: 0.55rem 0.75rem; font-size: 1rem; line-height: 1.4;
+            border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--input-bg); color: var(--text-main); font-family: inherit; }
+        .tutor-input:focus { outline: none; border-color: var(--accent-color); background: var(--card-bg); }
+        .tutor-send, .tutor-text-end { flex: 0 0 auto; border: none; cursor: pointer; border-radius: var(--radius-md); font-weight: 600; }
+        .tutor-send { width: 42px; height: 42px; font-size: 1.1rem; background: var(--accent-color); color: #fff; }
+        .tutor-send:disabled { opacity: 0.5; cursor: default; }
+        .tutor-text-end { padding: 0 0.7rem; height: 42px; font-size: 0.8rem; background: var(--input-bg); color: var(--text-secondary); border: 1px solid var(--border-hairline); }
+
         /* ================================================================
            TONE COLORS (Pleco-style) + BOOK READER
            ================================================================ */

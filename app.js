@@ -1,6 +1,10 @@
 // ======== latest ========
-//const backendUrl = 'http://localhost:3000'; // <-- CHANGE FOR LOCAL TESTING
-const backendUrl = 'https://pinyin.namm.xyz:8443'; // <-- ADD THIS LINE
+// ORG-06: auto-detect local dev vs production instead of hand-editing this line.
+// On localhost the client talks to the local Express server (same code that
+// serves these files + the API); everywhere else it uses the production host.
+const backendUrl = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? location.origin
+    : 'https://pinyin.namm.xyz:8443';
 
 // === SVG ICONS ===Global Character Stats
 const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"></path></svg>`;
@@ -1546,6 +1550,13 @@ async function runWithConcurrency(items, limit, worker) {
         }
     };
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runner));
+}
+
+// Parse a fetch Response as JSON, tolerating non-JSON (e.g. an HTML 502 from the
+// reverse proxy while the server restarts) — returns null instead of throwing.
+async function safeJsonResponse(response) {
+    const raw = await response.text();
+    try { return JSON.parse(raw); } catch (_) { return null; }
 }
 
 async function translateText(text, targetLanguage) {
@@ -5871,6 +5882,13 @@ let tutorStream = null;
 let tutorModalEl = null;
 let tutorActive = false;
 
+// Text-tutor state (the typed sibling of the WebRTC voice tutor).
+let tutorMode = 'voice';
+try { tutorMode = localStorage.getItem('tutorMode') === 'text' ? 'text' : 'voice'; } catch (_) { /* ignore */ }
+let tutorChatMessages = [];   // OpenAI-format history for /tutor-chat: {role,content}
+let tutorChatActive = false;  // a typed conversation is in progress
+let tutorChatBusy = false;    // a request is in flight (blocks double-send)
+
 const voiceTutorBtn = document.getElementById('voice-tutor-btn');
 if (voiceTutorBtn) voiceTutorBtn.addEventListener('click', openVoiceTutor);
 
@@ -5984,8 +6002,12 @@ function ensureTutorModal() {
     tutorModalEl.innerHTML = `
         <div class="modal-content tutor-modal-content">
             <div class="game-topbar">
-                <h3>Voice Tutor</h3>
+                <h3>AI Tutor</h3>
                 <button id="tutor-close" class="modal-btn">Close</button>
+            </div>
+            <div class="tutor-mode-switch" role="tablist" aria-label="Tutor mode">
+                <button id="tutor-mode-voice" class="tutor-mode-btn" data-mode="voice" role="tab">🎙 Voice</button>
+                <button id="tutor-mode-text" class="tutor-mode-btn" data-mode="text" role="tab">⌨️ Text</button>
             </div>
             <button id="tutor-setup-toggle" class="tutor-setup-toggle" aria-expanded="true" aria-controls="tutor-setup">
                 <span class="tutor-setup-toggle-label">Hide options</span>
@@ -6003,23 +6025,59 @@ function ensureTutorModal() {
                         <div id="tutor-cheatsheet-body"></div>
                     </details>
                 </div>
-                <div id="tutor-orb" class="tutor-orb"></div>
-                <div class="tutor-hint">🎧 Best with headphones — it stops the AI from hearing its own voice.</div>
+                <div id="tutor-orb" class="tutor-orb tutor-voice-only"></div>
+                <div class="tutor-hint tutor-voice-only">🎧 Best with headphones — it stops the AI from hearing its own voice.</div>
             </div>
             <div id="tutor-status" class="tutor-status">Pick a scenario (or free chat), then tap start and speak in Chinese.</div>
             <button id="tutor-toggle" class="speak-record-btn">Start conversation</button>
-            <div id="tutor-convo" class="tutor-convo">
+            <div id="tutor-convo" class="tutor-convo tutor-voice-only">
                 <div id="tutor-transcript" class="tutor-transcript"></div>
-                <div id="tutor-debrief" class="tutor-debrief"></div>
             </div>
+            <div id="tutor-textchat" class="tutor-textchat">
+                <div id="tutor-msgs" class="tutor-msgs"></div>
+                <div id="tutor-suggestions" class="tutor-suggestions"></div>
+                <div class="tutor-input-row">
+                    <textarea id="tutor-input" class="tutor-input" rows="1" placeholder="Type in Chinese…" autocomplete="off"></textarea>
+                    <button id="tutor-send" class="tutor-send" aria-label="Send message">➤</button>
+                    <button id="tutor-text-end" class="tutor-text-end" title="End & review">End</button>
+                </div>
+            </div>
+            <div id="tutor-debrief" class="tutor-debrief"></div>
             <audio id="tutor-audio" autoplay playsinline></audio>
         </div>`;
     document.body.appendChild(tutorModalEl);
-    tutorModalEl.querySelector('#tutor-close').addEventListener('click', () => { stopTutor(true); tutorModalEl.classList.remove('active'); });
-    tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => tutorActive ? stopTutor() : startTutor());
-    tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) { stopTutor(true); tutorModalEl.classList.remove('active'); } });
+    tutorModalEl.querySelector('#tutor-close').addEventListener('click', closeTutorModal);
+    tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => {
+        if (tutorMode === 'text') { startTextTutor(); return; }
+        tutorActive ? stopTutor() : startTutor();
+    });
+    tutorModalEl.addEventListener('click', (e) => { if (e.target === tutorModalEl) closeTutorModal(); });
     tutorModalEl.querySelector('#tutor-setup-toggle').addEventListener('click', () =>
         setTutorSetupCollapsed(!tutorModalEl.classList.contains('setup-collapsed')));
+
+    // --- Text-mode wiring ---
+    tutorModalEl.querySelectorAll('.tutor-mode-btn').forEach(btn =>
+        btn.addEventListener('click', () => setTutorMode(btn.dataset.mode)));
+    const tInput = tutorModalEl.querySelector('#tutor-input');
+    tutorModalEl.querySelector('#tutor-send').addEventListener('click', () => sendTutorText(tInput.value));
+    tInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTutorText(tInput.value); }
+    });
+    tInput.addEventListener('input', () => {
+        tInput.style.height = 'auto';
+        tInput.style.height = Math.min(tInput.scrollHeight, 120) + 'px';
+    });
+    tutorModalEl.querySelector('#tutor-text-end').addEventListener('click', endTextTutor);
+    tutorModalEl.querySelector('#tutor-suggestions').addEventListener('click', (e) => {
+        const chip = e.target.closest('.tutor-sugg');
+        if (chip && chip.dataset.zh) sendTutorText(chip.dataset.zh);
+    });
+    tutorModalEl.querySelector('#tutor-msgs').addEventListener('click', (e) => {
+        const play = e.target.closest('.tutor-msg-play');
+        if (play) { window.requestSpeech?.(play.dataset.zh); return; }
+        const bubble = e.target.closest('.tutor-msg.tutor-msg-ai');
+        if (bubble) bubble.classList.toggle('show-en'); // tap message to reveal/hide English
+    });
 
     const coachToggle = tutorModalEl.querySelector('#tutor-coach-toggle');
     coachToggle.checked = tutorEnglishCoaching;
@@ -6078,18 +6136,201 @@ function updateDatePanel() {
 
 function openVoiceTutor() {
     ensureTutorModal();
-    const status = tutorModalEl.querySelector('#tutor-status');
-    const toggle = tutorModalEl.querySelector('#tutor-toggle');
-    status.textContent = 'Tap start, then just speak in Chinese — your AI tutor replies out loud.';
-    toggle.textContent = 'Start conversation';
-    toggle.classList.remove('recording');
     tutorModalEl.querySelector('#tutor-orb').classList.remove('active');
     tutorModalEl.querySelector('#tutor-transcript').innerHTML = '';
     tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
     renderTutorScenarios();
     updateDatePanel();
     setTutorSetupCollapsed(false); // start expanded so you can pick a scenario
+    setTutorMode(tutorMode);       // apply the remembered Voice/Text mode
     tutorModalEl.classList.add('active');
+}
+
+// Close the modal from either mode: stop any live voice call and reset text chat.
+function closeTutorModal() {
+    if (!tutorModalEl) return;
+    if (tutorActive) stopTutor(true);
+    tutorChatActive = false;
+    tutorModalEl.classList.remove('chatting');
+    tutorModalEl.classList.remove('active');
+}
+
+// Switch between the voice (WebRTC) and text tutors. Persists the choice.
+function setTutorMode(mode) {
+    tutorMode = mode === 'text' ? 'text' : 'voice';
+    try { localStorage.setItem('tutorMode', tutorMode); } catch (_) { /* ignore */ }
+    if (tutorActive) stopTutor(true); // leaving voice mid-call
+    tutorModalEl.classList.toggle('text-mode', tutorMode === 'text');
+    tutorModalEl.classList.remove('chatting');
+    tutorChatActive = false;
+    tutorModalEl.querySelectorAll('.tutor-mode-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.mode === tutorMode));
+    const status = tutorModalEl.querySelector('#tutor-status');
+    const toggle = tutorModalEl.querySelector('#tutor-toggle');
+    toggle.classList.remove('recording');
+    if (tutorMode === 'text') {
+        status.textContent = 'Pick a scenario (or free chat), then tap start and type in Chinese.';
+        toggle.textContent = 'Start chat';
+        tutorModalEl.querySelector('#tutor-msgs').innerHTML = '';
+        tutorModalEl.querySelector('#tutor-suggestions').innerHTML = '';
+    } else {
+        status.textContent = 'Tap start, then just speak in Chinese — your AI tutor replies out loud.';
+        toggle.textContent = 'Start conversation';
+    }
+    tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
+    setTutorSetupCollapsed(false);
+}
+
+// Begin a typed conversation: set target words, collapse setup, fetch the opener.
+async function startTextTutor() {
+    tutorTranscriptLog = [];
+    tutorChatMessages = [];
+    tutorChatActive = true;
+    tutorTargetWords = isDateScenario() ? [] : gatherDueWords();
+    tutorModalEl.classList.add('chatting');
+    setTutorSetupCollapsed(true);
+    tutorModalEl.querySelector('#tutor-msgs').innerHTML = '';
+    tutorModalEl.querySelector('#tutor-suggestions').innerHTML = '';
+    tutorModalEl.querySelector('#tutor-debrief').innerHTML = '';
+    tutorModalEl.querySelector('#tutor-status').textContent = '';
+    // Kick off with a hidden nudge so the tutor greets first, in character.
+    await tutorChatTurn([{ role: 'user', content: '（请用中文和我打个招呼，开始对话。）' }], { hideLastUser: true });
+    tutorModalEl.querySelector('#tutor-input')?.focus();
+}
+
+// Send one learner message (typed or tapped suggestion), then get the reply.
+async function sendTutorText(text) {
+    const msg = (text || '').trim();
+    if (!msg || tutorChatBusy) return;
+    if (!tutorChatActive) { await startTextTutor(); }
+    const input = tutorModalEl.querySelector('#tutor-input');
+    if (input) { input.value = ''; input.style.height = 'auto'; }
+    renderTutorMsg('you', msg);
+    tutorTranscriptLog.push({ who: 'you', zh: msg });
+    tutorModalEl.querySelector('#tutor-suggestions').innerHTML = '';
+    await tutorChatTurn([...tutorChatMessages, { role: 'user', content: msg }], { userMsg: msg });
+}
+
+// One round-trip to /tutor-chat: append the user turn(s), render the AI reply,
+// then refresh the reply suggestions. `hideLastUser` skips showing the greeting nudge.
+async function tutorChatTurn(messages, { userMsg = null, hideLastUser = false } = {}) {
+    tutorChatBusy = true;
+    setTutorSendEnabled(false);
+    const typing = showTutorTyping();
+    let scenarioPrompt = tutorScenario.prompt;
+    if (isDateScenario() && tutorEnglishCoaching) {
+        scenarioPrompt += ' COACHING: after each Chinese reply, add ONE short aside in English in parentheses.';
+    }
+    try {
+        const resp = await fetch(`${backendUrl}/tutor-chat`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scenario: scenarioPrompt, targetWords: tutorTargetWords, messages })
+        });
+        const data = await safeJsonResponse(resp);
+        typing.remove();
+        if (!resp.ok || !data || !data.zh) throw new Error((data && data.error) || 'Server unavailable — try again in a moment.');
+        // Commit history only on success (so a failed turn can be retried).
+        if (userMsg != null) tutorChatMessages.push({ role: 'user', content: userMsg });
+        else if (!hideLastUser && messages.length) tutorChatMessages.push(messages[messages.length - 1]);
+        tutorChatMessages.push({ role: 'assistant', content: data.zh });
+        renderTutorMsg('ai', data.zh);
+        tutorTranscriptLog.push({ who: 'tutor', zh: data.zh });
+        refreshTutorSuggestions();
+    } catch (e) {
+        typing.remove();
+        renderTutorMsg('sys', e.message);
+    } finally {
+        tutorChatBusy = false;
+        setTutorSendEnabled(true);
+    }
+}
+
+// Ask the server for 2-3 things the learner could say next; render as chips.
+async function refreshTutorSuggestions() {
+    const wrap = tutorModalEl.querySelector('#tutor-suggestions');
+    if (!wrap || !tutorChatMessages.length) return;
+    wrap.innerHTML = '<span class="tutor-sugg-loading">…</span>';
+    try {
+        const resp = await fetch(`${backendUrl}/tutor-suggestions`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scenario: tutorScenario.prompt, messages: tutorChatMessages })
+        });
+        const data = await safeJsonResponse(resp);
+        const list = (data && Array.isArray(data.suggestions)) ? data.suggestions : [];
+        if (!tutorChatActive) return; // conversation ended while we waited
+        wrap.innerHTML = list.map(s => {
+            const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(s.zh, { toneType: 'symbol' }) : '';
+            return `<button type="button" class="tutor-sugg" data-zh="${escapeHtml(s.zh)}">
+                <span class="sugg-zh">${escapeHtml(s.zh)}</span>
+                <span class="sugg-py">${escapeHtml(py)}</span>
+                <span class="sugg-en">${escapeHtml(s.en || '')}</span>
+            </button>`;
+        }).join('');
+    } catch (_) {
+        wrap.innerHTML = ''; // suggestions are a nice-to-have; fail silently
+    }
+}
+
+// Render one chat bubble. who: 'you' | 'ai' | 'sys'.
+function renderTutorMsg(who, zh) {
+    const msgs = tutorModalEl.querySelector('#tutor-msgs');
+    if (!msgs) return;
+    const el = document.createElement('div');
+    if (who === 'sys') {
+        el.className = 'tutor-msg tutor-msg-sys';
+        el.textContent = zh;
+    } else if (who === 'you') {
+        el.className = 'tutor-msg tutor-msg-you';
+        el.innerHTML = `<div class="tutor-msg-zh">${renderRubyLine(zh)}</div>`;
+    } else {
+        const en = ''; // English is fetched lazily on first tap (keeps it immersive)
+        el.className = 'tutor-msg tutor-msg-ai';
+        el.innerHTML =
+            `<div class="tutor-msg-head"><button class="tutor-msg-play" data-zh="${escapeHtml(zh)}" aria-label="Play">🔊</button></div>` +
+            `<div class="tutor-msg-zh">${renderRubyLine(zh)}</div>` +
+            `<div class="tutor-msg-en" data-zh="${escapeHtml(zh)}">${escapeHtml(en)}</div>`;
+        fillTutorEnglish(el.querySelector('.tutor-msg-en'), zh);
+    }
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+// Lazily translate an AI line for the tap-to-reveal English (cached via /translate).
+async function fillTutorEnglish(elEn, zh) {
+    if (!elEn) return;
+    try {
+        const en = await translateText(zh, 'EN');
+        if (en && en !== '[Translation Failed]') elEn.textContent = en;
+    } catch (_) { /* leave blank; tap does nothing */ }
+}
+
+function showTutorTyping() {
+    const msgs = tutorModalEl.querySelector('#tutor-msgs');
+    const el = document.createElement('div');
+    el.className = 'tutor-msg tutor-msg-ai tutor-typing';
+    el.innerHTML = '<span class="tutor-dot"></span><span class="tutor-dot"></span><span class="tutor-dot"></span>';
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+    return el;
+}
+
+function setTutorSendEnabled(on) {
+    const send = tutorModalEl.querySelector('#tutor-send');
+    const input = tutorModalEl.querySelector('#tutor-input');
+    if (send) send.disabled = !on;
+    if (input) input.disabled = !on;
+}
+
+// End the typed conversation and show the same debrief the voice tutor uses.
+function endTextTutor() {
+    if (!tutorChatActive) return;
+    tutorChatActive = false;
+    tutorModalEl.classList.remove('chatting');
+    setTutorSetupCollapsed(false);
+    tutorModalEl.querySelector('#tutor-suggestions').innerHTML = '';
+    tutorModalEl.querySelector('#tutor-status').textContent = 'Chat ended. Start again any time.';
+    tutorModalEl.querySelector('#tutor-toggle').textContent = 'Start new chat';
+    runTutorDebrief();
 }
 
 async function startTutor() {
