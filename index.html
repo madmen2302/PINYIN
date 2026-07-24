@@ -317,24 +317,22 @@
         .launcher-name { font-weight: 700; font-size: 0.9rem; line-height: 1.15; }
         .launcher-sub { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.1; }
         @media (max-width: 640px) { .launcher-grid { grid-template-columns: repeat(2, 1fr); } }
+        /* The textarea and the "Chinese only" toggle share one bordered box. */
+        .text-input-box {
+            border-radius: 16px; border: 1px solid var(--border-color); background: var(--input-bg);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); transition: all 0.2s; overflow: hidden;
+        }
+        .text-input-box:focus-within { background: var(--card-bg); border-color: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-glow); }
         #text-input {
-            width: 100%; box-sizing: border-box; height: auto; border-radius: 16px; 
-            border: 1px solid var(--border-color); background: var(--input-bg); 
-            padding: 16px; font-size: 1.1rem; font-family: inherit; resize: none; color: var(--text-main);
-            transition: all 0.2s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+            width: 100%; box-sizing: border-box; height: auto; display: block;
+            border: none; background: transparent; box-shadow: none; border-radius: 0;
+            padding: 16px 16px 8px; font-size: 1.1rem; font-family: inherit; resize: none; color: var(--text-main);
         }
-        #text-input:focus { outline: none; background: var(--card-bg); border-color: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-glow); }
-        
-        #chinese-only-row {
-            display: flex; align-items: center; justify-content: space-between; gap: 12px;
-            margin-top: 10px; padding: 10px 14px;
-            border: 1px solid var(--border-hairline); border-radius: var(--radius-md);
-            background: var(--card-bg);
-        }
-        #chinese-only-row .chinese-only-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        #chinese-only-row .chinese-only-title { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
-        #chinese-only-row .chinese-only-sub { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.2; }
-        #chinese-only-row .toggle-switch { flex-shrink: 0; }
+        #text-input:focus { outline: none; }
+        .text-input-footer { display: flex; align-items: center; justify-content: flex-end; padding: 4px 12px 10px; }
+        .chinese-only-mini { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+            font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); user-select: none; }
+        .chinese-only-mini .toggle-switch { flex-shrink: 0; }
         /* UX-01: visible submit button (Enter still works too). */
         .process-text-btn {
             width: 100%; margin-top: 10px; padding: 13px 16px; min-height: 46px;
@@ -1615,23 +1613,21 @@
             <div id="top-controls-wrapper"> 
                 <div id="input-methods">
                     <div class="input-group">
-                        <textarea id="text-input" rows="4" lang="zh" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Paste text here... Press Enter to process."></textarea>
-                         <div id="waveContainer" class="wave">
-                            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
-                        </div>
-                        <div id="chinese-only-row">
-                            <div class="chinese-only-text">
-                                <span class="chinese-only-title">Chinese only</span>
-                                <span class="chinese-only-sub">Strip pinyin &amp; English — process just the 汉字</span>
+                        <div class="text-input-box">
+                            <textarea id="text-input" rows="4" lang="zh" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Paste text here... Press Enter to process."></textarea>
+                            <div class="text-input-footer">
+                                <label class="chinese-only-mini" title="Strip pinyin &amp; English — process just the 汉字">
+                                    <span class="toggle-switch small"><input type="checkbox" id="chinese-only-toggle"><span class="toggle-slider"></span></span>
+                                    <span>Chinese only</span>
+                                </label>
                             </div>
-                            <label class="toggle-switch small">
-                                <input type="checkbox" id="chinese-only-toggle">
-                                <span class="toggle-slider"></span>
-                            </label>
+                        </div>
+                        <div id="waveContainer" class="wave">
+                            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
                         </div>
                         <button id="process-text-btn" class="process-text-btn" disabled>Loading dictionary…</button>
                     </div>
-                    <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display:none;">
+                    <input type="file" id="ocr-file-input" accept="image/*" style="display:none;">
                     <input type="file" id="book-file-input" accept=".epub,.pdf,.txt" style="display:none;">
                     <input type="file" id="subs-file-input" accept=".srt,.ass,.vtt,.ssa" style="display:none;">
                     <input type="file" id="subs-video-input" accept="video/*" style="display:none;">
@@ -1669,6 +1665,11 @@
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M3 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zm16.5-.5a2 2 0 0 1 1.5 1.94V17a4 4 0 0 1-4 4H8.56a2 2 0 0 1 1.94 1.5H17a6 6 0 0 0 6-6V8.44a4 4 0 0 0-3.5-1.94z"></path></svg>
                             <span class="launcher-name">Flashcards</span>
                             <span class="launcher-sub" id="flashcards-launcher-sub">Review your decks</span>
+                        </button>
+                        <button id="live-translate-btn" class="launcher-card">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"></path></svg>
+                            <span class="launcher-name">Live Translate</span>
+                            <span class="launcher-sub">Two-way interpreter</span>
                         </button>
                     </div>
                 </div>
@@ -1719,10 +1720,6 @@
                     <button id="voice-tutor-btn" class="panel-btn tool-primary">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
                         <span>Voice Tutor</span>
-                    </button>
-                    <button id="live-translate-btn" class="panel-btn tool-primary">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"></path></svg>
-                        <span>Live Translate</span>
                     </button>
                     <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 5H3V3h4v2zm0 8H3v-2h4v2zm0 8H3v-2h4v2zm4-4h10v-2H11v2zm0-8h10V7H11v2zm0-8h10V3H11v2z"></path></svg>
