@@ -636,16 +636,40 @@ app.post('/realtime-session', async (req, res) => {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
     try {
         // Scenario Director: role-play scenario + the learner's due SRS words to elicit.
-        const { scenario, targetWords, voice: reqVoice, femaleVoice } = req.body || {};
+        const { scenario, targetWords, voice: reqVoice, femaleVoice, mode, partnerLang } = req.body || {};
         // Voice selection: the flirt/date roleplay (小雨) uses a warm female voice;
         // an explicit, allow-listed `voice` from the client overrides. Validation
         // keeps a bad value from ever reaching OpenAI.
         let voice = femaleVoice ? REALTIME_VOICE_DATE : REALTIME_VOICE;
         if (typeof reqVoice === 'string' && ALLOWED_REALTIME_VOICES.includes(reqVoice)) voice = reqVoice;
-        let instructions = TUTOR_INSTRUCTIONS;
-        if (scenario) instructions += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 1200)}.`;
-        if (Array.isArray(targetWords) && targetWords.length) {
-            instructions += ` During the conversation, naturally create openings for the learner to use these words (weave them in, do not list them): ${targetWords.slice(0, 12).join('、')}.`;
+
+        // Live Translate mode: a hands-free two-way interpreter between Mandarin and
+        // the partner language (English or Spanish). Auto-detect the spoken language
+        // (no `language` lock) and translate — never converse.
+        const isTranslate = mode === 'translate';
+        let instructions, inputTranscription, turnDetection, outputSpeed;
+        if (isTranslate) {
+            const other = partnerLang === 'es' ? 'Spanish' : 'English';
+            instructions =
+                `You are a live, real-time two-way interpreter between Mandarin Chinese and ${other}. ` +
+                `If the speaker talks in Chinese, immediately say ONLY the ${other} translation. ` +
+                `If the speaker talks in ${other}, immediately say ONLY the Mandarin Chinese translation. ` +
+                `Translate faithfully and naturally, preserving tone and register; keep it concise. ` +
+                `NEVER answer questions, give opinions, add greetings, commentary, or explanations — output only the translation of what was said.`;
+            inputTranscription = { model: 'whisper-1' };          // auto-detect zh vs en/es
+            turnDetection = { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 600 };
+            outputSpeed = 1.0;
+        } else {
+            instructions = TUTOR_INSTRUCTIONS;
+            if (scenario) instructions += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 1200)}.`;
+            if (Array.isArray(targetWords) && targetWords.length) {
+                instructions += ` During the conversation, naturally create openings for the learner to use these words (weave them in, do not list them): ${targetWords.slice(0, 12).join('、')}.`;
+            }
+            // Lock to Chinese — auto-detect mangles a beginner's speech.
+            inputTranscription = { model: 'whisper-1', language: 'zh' };
+            // Wait for a clear pause before responding, so it doesn't rush the learner.
+            turnDetection = { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 1200 };
+            outputSpeed = 0.85; // slightly slower, calmer speech for a beginner
         }
         const resp = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
             method: 'POST',
@@ -656,16 +680,8 @@ app.post('/realtime-session', async (req, res) => {
                     model: REALTIME_MODEL,
                     instructions,
                     audio: {
-                        input: {
-                            // Transcribe the learner's speech so the client can show it.
-                            // Lock to Chinese — auto-detect mangles a beginner's speech.
-                            transcription: { model: 'whisper-1', language: 'zh' },
-                            // Wait for a clear pause before responding, so it doesn't
-                            // interrupt or rush the learner.
-                            turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 1200 }
-                        },
-                        // Slightly slower, calmer speech for a beginner.
-                        output: { voice, speed: 0.85 }
+                        input: { transcription: inputTranscription, turn_detection: turnDetection },
+                        output: { voice, speed: outputSpeed }
                     }
                 }
             })

@@ -1301,6 +1301,66 @@
         #tutor-modal.chatting #tutor-setup-toggle,
         #tutor-modal.chatting #tutor-setup { display: none; }
 
+        /* ===== Live Translate (interpreter) ===== */
+        #translate-modal .translate-modal-content {
+            position: relative; max-width: 480px; width: 92%; height: min(88dvh, 800px);
+            display: flex; flex-direction: column; text-align: center;
+            background: var(--card-bg); border: 1px solid var(--border-hairline);
+            border-radius: 20px; box-shadow: var(--shadow-md);
+            padding: 1rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
+            box-sizing: border-box; overflow: hidden;
+        }
+        .translate-modal-content .game-topbar { flex: 0 0 auto; margin-bottom: 0.5rem; }
+        .translate-modal-content .speak-record-btn { flex: 0 0 auto; }
+        .translate-intro { font-size: 0.9rem; color: var(--text-secondary); margin: 0.2rem 0 0.9rem; line-height: 1.45; }
+        .translate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 0.7rem; flex-wrap: wrap; }
+        .translate-row-label { font-size: 0.85rem; font-weight: 600; color: var(--text-main); }
+        .translate-seg { display: flex; gap: 4px; padding: 4px; background: var(--input-bg); border: 1px solid var(--border-hairline); border-radius: 999px; flex-wrap: wrap; }
+        .translate-seg-btn { font-size: 0.82rem; font-weight: 600; padding: 0.3rem 0.7rem; border-radius: 999px; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; transition: all 0.15s var(--ease-spring); }
+        .translate-seg-btn.active { background: var(--accent-color); color: #fff; }
+        .translate-hint { font-size: 0.78rem; color: var(--text-subtle); margin-top: 0.3rem; line-height: 1.4; }
+        .translate-status { font-size: 0.9rem; color: var(--text-secondary); margin: 0.6rem 0; min-height: 1.2em; }
+        .translate-status .error { color: var(--danger-color); }
+        /* Meter: timer · est. cost · remaining */
+        .translate-meter { display: none; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
+            font-size: 0.9rem; font-weight: 600; padding: 0.5rem 0.75rem; margin-bottom: 0.4rem;
+            background: var(--input-bg); border: 1px solid var(--border-hairline); border-radius: var(--radius-md); }
+        #translate-modal.translating .translate-meter { display: flex; }
+        .tr-meter-time { color: var(--text-main); }
+        .tr-meter-cost { color: var(--accent-color); }
+        .tr-meter-left { color: var(--text-secondary); }
+        .tr-meter-left.low { color: var(--danger-color); }
+        /* Once translating, the setup collapses and a floating ✕ appears. */
+        #translate-modal.translating #translate-setup,
+        #translate-modal.translating .game-topbar { display: none; }
+        #translate-modal.translating .tutor-chat-close { display: flex; }
+        /* Transcript: source line → translation line, pinyin on any Chinese. */
+        .translate-transcript { flex: 1 1 auto; min-height: 0; overflow-y: auto; text-align: left;
+            display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.5rem; padding: 0.15rem; }
+        .translate-transcript:empty { display: none; }
+        .tr-entry { border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--card-bg); padding: 0.55rem 0.7rem; }
+        .tr-src, .tr-tgt { display: flex; align-items: flex-start; gap: 8px; }
+        .tr-src { opacity: 0.72; }
+        .tr-src .tr-line-text { font-size: 0.95rem; }
+        .tr-tgt { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--border-hairline); }
+        .tr-tgt .tr-line-text { font-size: 1.15rem; font-weight: 600; color: var(--text-main); }
+        .tr-line-body { min-width: 0; }
+        .tr-line-py { font-size: 0.8rem; color: var(--accent-color); margin-top: 1px; }
+        .tr-pending { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--border-hairline); color: var(--text-subtle); }
+        .tr-play { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 0.72rem;
+            background: var(--accent-soft); color: var(--accent-color); border: 1px solid var(--border-hairline); }
+        .tr-play:hover { background: var(--accent-color); color: #fff; }
+        @media (max-width: 640px) {
+            #translate-modal { align-items: stretch; }
+            #translate-modal .translate-modal-content {
+                width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+                border-radius: 0; border: none;
+                padding: calc(0.5rem + env(safe-area-inset-top)) 0.85rem calc(0.5rem + env(safe-area-inset-bottom));
+            }
+            #translate-modal.translating .tutor-chat-close { top: calc(env(safe-area-inset-top) + 6px); }
+        }
+
         /* ================================================================
            TONE COLORS (Pleco-style) + BOOK READER
            ================================================================ */
@@ -1659,6 +1719,10 @@
                     <button id="voice-tutor-btn" class="panel-btn tool-primary">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
                         <span>Voice Tutor</span>
+                    </button>
+                    <button id="live-translate-btn" class="panel-btn tool-primary">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"></path></svg>
+                        <span>Live Translate</span>
                     </button>
                     <button id="select-all-chars-btn" class="panel-btn" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M7 5H3V3h4v2zm0 8H3v-2h4v2zm0 8H3v-2h4v2zm4-4h10v-2H11v2zm0-8h10V7H11v2zm0-8h10V3H11v2z"></path></svg>

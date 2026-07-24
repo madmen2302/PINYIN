@@ -6556,6 +6556,280 @@ async function fetchDateSuggestions(lineEl, herLine) {
     }
 }
 
+// =========================================
+// ======== LIVE TRANSLATE (interpreter) ===
+// =========================================
+// A hands-free, two-way interpreter (Doubao-style) between Mandarin and the
+// partner language (English or Spanish), over the same OpenAI Realtime infra as
+// the voice tutor. Auto-detects the spoken language and speaks the translation
+// immediately. Includes a session timer, a rough cost estimate, and an auto-stop
+// so an always-on mic can't silently run up the bill.
+
+let translateModalEl = null;
+let translatePc = null;
+let translateStream = null;
+let translateActive = false;
+let translatePartnerLang = 'en';            // 'en' | 'es'
+let translateLimitMin = 5;                  // auto-stop after N minutes
+let translateStartTs = 0;
+let translateTimerInt = null;
+let translatePendingEntry = null;           // card awaiting its translation
+try { translatePartnerLang = localStorage.getItem('translatePartnerLang') === 'es' ? 'es' : 'en'; } catch (_) { /* ignore */ }
+
+// Rough combined (input+output) cost estimate per minute of Realtime audio.
+// Deliberately conservative so the shown figure over- rather than under-states.
+const TRANSLATE_COST_PER_MIN = 0.30;
+
+const liveTranslateBtn = document.getElementById('live-translate-btn');
+if (liveTranslateBtn) liveTranslateBtn.addEventListener('click', openLiveTranslate);
+
+function ensureTranslateModal() {
+    if (translateModalEl) return translateModalEl;
+    translateModalEl = document.createElement('div');
+    translateModalEl.id = 'translate-modal';
+    translateModalEl.className = 'main-modal';
+    translateModalEl.innerHTML = `
+        <div class="modal-content translate-modal-content">
+            <button id="translate-x" class="tutor-chat-close" aria-label="Stop and close">✕</button>
+            <div class="game-topbar">
+                <h3>Live Translate</h3>
+                <button id="translate-close" class="modal-btn">Close</button>
+            </div>
+            <div id="translate-setup" class="translate-setup">
+                <p class="translate-intro">Two people, two languages — speak naturally and hear the translation instantly. 中文 ⇄ your partner's language.</p>
+                <div class="translate-row">
+                    <span class="translate-row-label">Partner speaks</span>
+                    <div class="translate-seg" id="translate-lang">
+                        <button class="translate-seg-btn" data-lang="en">🇬🇧 English</button>
+                        <button class="translate-seg-btn" data-lang="es">🇪🇸 Español</button>
+                    </div>
+                </div>
+                <div class="translate-row">
+                    <span class="translate-row-label">Auto-stop after</span>
+                    <div class="translate-seg" id="translate-limit">
+                        <button class="translate-seg-btn" data-min="3">3 min</button>
+                        <button class="translate-seg-btn" data-min="5">5 min</button>
+                        <button class="translate-seg-btn" data-min="10">10 min</button>
+                        <button class="translate-seg-btn" data-min="15">15 min</button>
+                    </div>
+                </div>
+                <div class="translate-hint">🎧 Headphones help. Hands-free: just talk, pause briefly, and it translates. Auto-stops to protect against runaway cost.</div>
+            </div>
+            <div id="translate-meter" class="translate-meter"></div>
+            <div id="translate-status" class="translate-status">Pick a language, then tap start.</div>
+            <button id="translate-toggle" class="speak-record-btn">Start translating</button>
+            <div id="translate-transcript" class="translate-transcript"></div>
+            <audio id="translate-audio" autoplay playsinline></audio>
+        </div>`;
+    document.body.appendChild(translateModalEl);
+    translateModalEl.querySelector('#translate-close').addEventListener('click', closeTranslateModal);
+    translateModalEl.querySelector('#translate-x').addEventListener('click', closeTranslateModal);
+    translateModalEl.addEventListener('click', (e) => { if (e.target === translateModalEl) closeTranslateModal(); });
+    translateModalEl.querySelector('#translate-toggle').addEventListener('click', () => translateActive ? stopTranslate() : startTranslate());
+    translateModalEl.querySelector('#translate-lang').addEventListener('click', (e) => {
+        const btn = e.target.closest('.translate-seg-btn'); if (!btn) return;
+        translatePartnerLang = btn.dataset.lang === 'es' ? 'es' : 'en';
+        try { localStorage.setItem('translatePartnerLang', translatePartnerLang); } catch (_) { /* ignore */ }
+        syncTranslateSegs();
+    });
+    translateModalEl.querySelector('#translate-limit').addEventListener('click', (e) => {
+        const btn = e.target.closest('.translate-seg-btn'); if (!btn) return;
+        translateLimitMin = parseInt(btn.dataset.min, 10) || 5;
+        syncTranslateSegs();
+    });
+    translateModalEl.querySelector('#translate-transcript').addEventListener('click', (e) => {
+        const play = e.target.closest('.tr-play');
+        if (play && play.dataset.text) replayTranslateLine(play.dataset.text, play.dataset.lang);
+    });
+    return translateModalEl;
+}
+
+function syncTranslateSegs() {
+    if (!translateModalEl) return;
+    translateModalEl.querySelectorAll('#translate-lang .translate-seg-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.lang === translatePartnerLang));
+    translateModalEl.querySelectorAll('#translate-limit .translate-seg-btn').forEach(b =>
+        b.classList.toggle('active', parseInt(b.dataset.min, 10) === translateLimitMin));
+}
+
+function openLiveTranslate() {
+    ensureTranslateModal();
+    translateModalEl.querySelector('#translate-transcript').innerHTML = '';
+    translateModalEl.querySelector('#translate-meter').innerHTML = '';
+    translateModalEl.querySelector('#translate-status').textContent = 'Pick a language, then tap start.';
+    translateModalEl.querySelector('#translate-toggle').textContent = 'Start translating';
+    translateModalEl.querySelector('#translate-toggle').classList.remove('recording');
+    translateModalEl.classList.remove('translating');
+    syncTranslateSegs();
+    translateModalEl.classList.add('active');
+}
+
+function closeTranslateModal() {
+    if (translateActive) stopTranslate(true);
+    if (translateModalEl) translateModalEl.classList.remove('active', 'translating');
+}
+
+async function startTranslate() {
+    const status = translateModalEl.querySelector('#translate-status');
+    const toggle = translateModalEl.querySelector('#translate-toggle');
+    status.textContent = 'Connecting…';
+    toggle.disabled = true;
+    translatePendingEntry = null;
+    translateModalEl.querySelector('#translate-transcript').innerHTML = '';
+    try {
+        const sess = await fetch(`${backendUrl}/realtime-session`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'translate', partnerLang: translatePartnerLang })
+        });
+        const sdata = await safeJsonResponse(sess);
+        if (!sess.ok || !sdata) throw new Error((sdata && sdata.error) || 'Could not start a session.');
+
+        translatePc = new RTCPeerConnection();
+        const audioEl = translateModalEl.querySelector('#translate-audio');
+        translatePc.ontrack = (e) => {
+            audioEl.srcObject = e.streams[0];
+            const p = audioEl.play(); if (p && p.catch) p.catch(() => {});
+        };
+        translatePc.onconnectionstatechange = () => {
+            if (translatePc && ['failed', 'disconnected', 'closed'].includes(translatePc.connectionState)) {
+                if (translateActive) { status.textContent = 'Connection lost.'; stopTranslate(); }
+            }
+        };
+        translateStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        translateStream.getTracks().forEach(t => translatePc.addTrack(t, translateStream));
+
+        const dc = translatePc.createDataChannel('oai-events');
+        dc.onmessage = (e) => { try { handleTranslateEvent(JSON.parse(e.data)); } catch (_) { /* ignore */ } };
+
+        const offer = await translatePc.createOffer();
+        await translatePc.setLocalDescription(offer);
+        const sdpResp = await fetch('https://api.openai.com/v1/realtime/calls', {
+            method: 'POST', body: offer.sdp,
+            headers: { 'Authorization': `Bearer ${sdata.token}`, 'Content-Type': 'application/sdp' }
+        });
+        if (!sdpResp.ok) throw new Error(`Realtime handshake failed (${sdpResp.status}).`);
+        await translatePc.setRemoteDescription({ type: 'answer', sdp: await sdpResp.text() });
+
+        translateActive = true;
+        translateModalEl.classList.add('translating');
+        const other = translatePartnerLang === 'es' ? 'Spanish' : 'English';
+        status.textContent = `🎙️ Live — just speak in Chinese or ${other}.`;
+        toggle.textContent = 'Stop';
+        toggle.classList.add('recording');
+        startTranslateTimer();
+    } catch (error) {
+        console.error('Live translate error:', error);
+        status.innerHTML = `<span class="error">${escapeHtml(error.message || 'Could not connect.')}</span>`;
+        stopTranslate(true);
+    } finally {
+        toggle.disabled = false;
+    }
+}
+
+function stopTranslate(silent) {
+    translateActive = false;
+    stopTranslateTimer();
+    if (translateStream) { translateStream.getTracks().forEach(t => t.stop()); translateStream = null; }
+    if (translatePc) { try { translatePc.close(); } catch (_) {} translatePc = null; }
+    if (translateModalEl) {
+        translateModalEl.classList.remove('translating');
+        if (!silent) {
+            const toggle = translateModalEl.querySelector('#translate-toggle');
+            toggle.textContent = 'Start translating';
+            toggle.classList.remove('recording');
+            translateModalEl.querySelector('#translate-status').textContent = 'Stopped. Tap start to go again.';
+        }
+    }
+}
+
+// --- Session timer + estimated cost + auto-stop ---
+function fmtClock(totalSec) {
+    const s = Math.max(0, Math.floor(totalSec));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function startTranslateTimer() {
+    translateStartTs = Date.now();
+    updateTranslateMeter();
+    translateTimerInt = setInterval(updateTranslateMeter, 1000);
+}
+function stopTranslateTimer() {
+    if (translateTimerInt) { clearInterval(translateTimerInt); translateTimerInt = null; }
+}
+function updateTranslateMeter() {
+    const meter = translateModalEl && translateModalEl.querySelector('#translate-meter');
+    if (!meter) return;
+    const elapsed = (Date.now() - translateStartTs) / 1000;
+    const remaining = translateLimitMin * 60 - elapsed;
+    if (remaining <= 0) {
+        stopTranslate();
+        translateModalEl.querySelector('#translate-status').textContent =
+            `Auto-stopped after ${translateLimitMin} min. Tap start to continue.`;
+        return;
+    }
+    const cost = (elapsed / 60) * TRANSLATE_COST_PER_MIN;
+    const low = remaining <= 30 ? ' low' : '';
+    meter.innerHTML =
+        `<span class="tr-meter-time">⏱ ${fmtClock(elapsed)}</span>` +
+        `<span class="tr-meter-cost" title="Rough estimate">~$${cost.toFixed(2)}</span>` +
+        `<span class="tr-meter-left${low}">stops in ${fmtClock(remaining)}</span>`;
+}
+
+// --- Transcript: pair each spoken line (source) with its translation ---
+function handleTranslateEvent(evt) {
+    if (!evt || !evt.type) return;
+    if (evt.type === 'conversation.item.input_audio_transcription.completed' && evt.transcript) {
+        addTranslateSource(evt.transcript);
+    } else if ((evt.type === 'response.audio_transcript.done' || evt.type === 'response.output_audio_transcript.done') && evt.transcript) {
+        addTranslateTranslation(evt.transcript);
+    }
+}
+function trLineHtml(text, cls) {
+    const isZh = /[一-鿿]/.test(text);
+    const py = (isZh && window.pinyinPro?.pinyin) ? window.pinyinPro.pinyin(text, { toneType: 'symbol' }) : '';
+    const lang = isZh ? 'zh' : (translatePartnerLang);
+    return `<div class="${cls}">` +
+        `<button class="tr-play" data-text="${escapeHtml(text)}" data-lang="${lang}" aria-label="Replay">🔊</button>` +
+        `<div class="tr-line-body"><div class="tr-line-text">${escapeHtml(text)}</div>` +
+        (py ? `<div class="tr-line-py">${escapeHtml(py)}</div>` : '') + `</div></div>`;
+}
+function addTranslateSource(text) {
+    text = (text || '').trim(); if (!text || !translateModalEl) return;
+    const wrap = translateModalEl.querySelector('#translate-transcript');
+    const entry = document.createElement('div');
+    entry.className = 'tr-entry';
+    entry.innerHTML = trLineHtml(text, 'tr-src') + `<div class="tr-tgt tr-pending">…</div>`;
+    wrap.appendChild(entry);
+    wrap.scrollTop = wrap.scrollHeight;
+    translatePendingEntry = entry;
+}
+function addTranslateTranslation(text) {
+    text = (text || '').trim(); if (!text || !translateModalEl) return;
+    const wrap = translateModalEl.querySelector('#translate-transcript');
+    const tgtHtml = trLineHtml(text, 'tr-tgt');
+    if (translatePendingEntry && translatePendingEntry.querySelector('.tr-pending')) {
+        translatePendingEntry.querySelector('.tr-pending').outerHTML = tgtHtml;
+    } else {
+        const entry = document.createElement('div');
+        entry.className = 'tr-entry';
+        entry.innerHTML = tgtHtml;
+        wrap.appendChild(entry);
+    }
+    translatePendingEntry = null;
+    wrap.scrollTop = wrap.scrollHeight;
+}
+// Replay a line: Chinese via the app's natural TTS; en/es via the browser voice.
+function replayTranslateLine(text, lang) {
+    if (lang === 'zh') { window.requestSpeech?.(text); return; }
+    try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = lang === 'es' ? 'es-ES' : 'en-US';
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+    } catch (_) { /* ignore */ }
+}
+
 // ===================================
 // ============ BOOK READER ==========
 // ===================================
