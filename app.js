@@ -6573,7 +6573,7 @@ let translatePartnerLang = 'en';            // 'en' | 'es'
 let translateLimitMin = 5;                  // auto-stop after N minutes
 let translateStartTs = 0;
 let translateTimerInt = null;
-let translatePendingEntry = null;           // card awaiting its translation
+let translateEntries = [];                  // {el, hasSrc, hasTgt} per turn, for order-independent pairing
 try { translatePartnerLang = localStorage.getItem('translatePartnerLang') === 'es' ? 'es' : 'en'; } catch (_) { /* ignore */ }
 
 // Rough combined (input+output) cost estimate per minute of Realtime audio.
@@ -6654,6 +6654,7 @@ function syncTranslateSegs() {
 
 function openLiveTranslate() {
     ensureTranslateModal();
+    translateEntries = [];
     translateModalEl.querySelector('#translate-transcript').innerHTML = '';
     translateModalEl.querySelector('#translate-meter').innerHTML = '';
     translateModalEl.querySelector('#translate-status').textContent = 'Pick a language, then tap start.';
@@ -6674,7 +6675,7 @@ async function startTranslate() {
     const toggle = translateModalEl.querySelector('#translate-toggle');
     status.textContent = 'Connecting…';
     toggle.disabled = true;
-    translatePendingEntry = null;
+    translateEntries = [];
     translateModalEl.querySelector('#translate-transcript').innerHTML = '';
     try {
         const sess = await fetch(`${backendUrl}/realtime-session`, {
@@ -6780,9 +6781,9 @@ function updateTranslateMeter() {
 function handleTranslateEvent(evt) {
     if (!evt || !evt.type) return;
     if (evt.type === 'conversation.item.input_audio_transcription.completed' && evt.transcript) {
-        addTranslateSource(evt.transcript);
+        fillTranslateSlot('src', evt.transcript);
     } else if ((evt.type === 'response.audio_transcript.done' || evt.type === 'response.output_audio_transcript.done') && evt.transcript) {
-        addTranslateTranslation(evt.transcript);
+        fillTranslateSlot('tgt', evt.transcript);
     }
 }
 function trLineHtml(text, cls) {
@@ -6794,29 +6795,31 @@ function trLineHtml(text, cls) {
         `<div class="tr-line-body"><div class="tr-line-text">${escapeHtml(text)}</div>` +
         (py ? `<div class="tr-line-py">${escapeHtml(py)}</div>` : '') + `</div></div>`;
 }
-function addTranslateSource(text) {
-    text = (text || '').trim(); if (!text || !translateModalEl) return;
+// Order-independent pairing: the input transcription (source) and the response
+// transcript (translation) can arrive in EITHER order — Whisper often finishes
+// after the model has already spoken. Each turn is one box with a src slot and a
+// tgt slot; fill whichever slot the event carries into the OLDEST box still
+// missing it, creating a new box only when none is waiting.
+function fillTranslateSlot(slot, text) {
+    text = (text || '').trim();
+    if (!text || !translateModalEl) return;
     const wrap = translateModalEl.querySelector('#translate-transcript');
-    const entry = document.createElement('div');
-    entry.className = 'tr-entry';
-    entry.innerHTML = trLineHtml(text, 'tr-src') + `<div class="tr-tgt tr-pending">…</div>`;
-    wrap.appendChild(entry);
-    wrap.scrollTop = wrap.scrollHeight;
-    translatePendingEntry = entry;
-}
-function addTranslateTranslation(text) {
-    text = (text || '').trim(); if (!text || !translateModalEl) return;
-    const wrap = translateModalEl.querySelector('#translate-transcript');
-    const tgtHtml = trLineHtml(text, 'tr-tgt');
-    if (translatePendingEntry && translatePendingEntry.querySelector('.tr-pending')) {
-        translatePendingEntry.querySelector('.tr-pending').outerHTML = tgtHtml;
-    } else {
-        const entry = document.createElement('div');
-        entry.className = 'tr-entry';
-        entry.innerHTML = tgtHtml;
-        wrap.appendChild(entry);
+    if (!wrap) return;
+    const filledKey = slot === 'src' ? 'hasSrc' : 'hasTgt';
+    let entry = translateEntries.find(e => !e[filledKey] && e.el.isConnected);
+    if (!entry) {
+        const el = document.createElement('div');
+        el.className = 'tr-entry';
+        // Fixed slot order (source above translation); either may fill first.
+        el.innerHTML = `<div class="tr-src tr-slot-pending">· · ·</div><div class="tr-tgt tr-slot-pending">· · ·</div>`;
+        wrap.appendChild(el);
+        entry = { el, hasSrc: false, hasTgt: false };
+        translateEntries.push(entry);
     }
-    translatePendingEntry = null;
+    const cls = slot === 'src' ? 'tr-src' : 'tr-tgt';
+    const slotEl = entry.el.querySelector('.' + cls);
+    if (slotEl) slotEl.outerHTML = trLineHtml(text, cls);
+    entry[filledKey] = true;
     wrap.scrollTop = wrap.scrollHeight;
 }
 // Replay a line: Chinese via the app's natural TTS; en/es via the browser voice.

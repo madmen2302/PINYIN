@@ -1344,7 +1344,9 @@
         .tr-tgt .tr-line-text { font-size: 1.15rem; font-weight: 600; color: var(--text-main); }
         .tr-line-body { min-width: 0; }
         .tr-line-py { font-size: 0.8rem; color: var(--accent-color); margin-top: 1px; }
-        .tr-pending { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--border-hairline); color: var(--text-subtle); }
+        /* A slot waiting for its counterpart event (source or translation). */
+        .tr-slot-pending { color: var(--text-subtle); font-size: 0.9rem; letter-spacing: 2px; }
+        .tr-tgt.tr-slot-pending { margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--border-hairline); }
         .tr-play { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
             display: flex; align-items: center; justify-content: center; font-size: 0.72rem;
             background: var(--accent-soft); color: var(--accent-color); border: 1px solid var(--border-hairline); }
