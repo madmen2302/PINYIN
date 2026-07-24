@@ -48,6 +48,7 @@ controlsToggleBtn.setAttribute('aria-label', 'Show or hide the text input');
 const darkModeToggle = document.getElementById('dark-mode-toggle');
 const bars = document.querySelectorAll('.bar');
 const textInput = document.getElementById('text-input');
+const processTextBtn = document.getElementById('process-text-btn');
 const autoPronounceToggle = document.getElementById('auto-pronounce-toggle');
 const repeatCountSelector = document.getElementById('repeat-count-selector');
 const voiceSelector = document.getElementById('voice-selector');
@@ -509,21 +510,56 @@ function applyDictionaryCorrections(dict) {
     }
 }
 
+// PERF-01: parse a (large) JSON file off the main thread via a tiny inline
+// Blob worker, so the 5.8MB dictionary parse doesn't freeze startup. The worker
+// fetches + parses; we only pay the structured-clone hand-back on the main
+// thread. Falls back to a normal main-thread fetch if Workers are unavailable.
+function parseJsonInWorker(url) {
+    return new Promise((resolve, reject) => {
+        let objUrl;
+        try {
+            const code = `self.onmessage = async (e) => {
+                try {
+                    const r = await fetch(e.data);
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    self.postMessage({ ok: true, obj: await r.json() });
+                } catch (err) { self.postMessage({ ok: false, error: String((err && err.message) || err) }); }
+            };`;
+            objUrl = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+            const worker = new Worker(objUrl);
+            const cleanup = () => { worker.terminate(); URL.revokeObjectURL(objUrl); };
+            worker.onmessage = (e) => { cleanup(); e.data && e.data.ok ? resolve(e.data.obj) : reject(new Error(e.data && e.data.error)); };
+            worker.onerror = (err) => { cleanup(); reject(err); };
+            worker.postMessage(url);
+        } catch (err) {
+            if (objUrl) URL.revokeObjectURL(objUrl);
+            reject(err);
+        }
+    });
+}
+
 async function loadDictionaryAndLibs() {
     try {
-        // === OPTIMIZATION: Fetch all initial data in parallel ===
-        const [dictResult, customDbResult, hskResult] = await Promise.allSettled([
-            fetch('./dictionary.json'),
+        // === OPTIMIZATION: parse the big dictionary off-thread (PERF-01) while the
+        // small data files fetch+parse in parallel on the main thread. ===
+        const dictUrl = new URL('./dictionary.json', document.baseURI).href;
+        const dictPromise = parseJsonInWorker(dictUrl)
+            .catch(() => fetch('./dictionary.json').then(r => (r.ok ? r.json() : null)));
+        const [customDbResult, hskResult] = await Promise.allSettled([
             fetch('./custom-db.json'),
             fetch('./hsk.json')
         ]);
 
-        if (dictResult.status === 'fulfilled' && dictResult.value.ok) {
-            dictionary = await dictResult.value.json();
-            applyDictionaryCorrections(dictionary);
-            console.log('✅ Dictionary loaded.');
-        } else {
-            console.error('❌ Failed to load dictionary.json.');
+        try {
+            dictionary = await dictPromise;
+            if (dictionary) {
+                applyDictionaryCorrections(dictionary);
+                console.log('✅ Dictionary loaded (off-thread).');
+            } else {
+                console.error('❌ Failed to load dictionary.json.');
+            }
+        } catch (e) {
+            console.error('❌ Failed to load dictionary.json.', e);
         }
 
         if (hskResult.status === 'fulfilled' && hskResult.value.ok) {
@@ -544,6 +580,7 @@ async function loadDictionaryAndLibs() {
         // ==========================================================
         segmentit = Segmentit.useDefault(new Segmentit.Segment());
         console.log('✅ Dictionary and Segmenter loaded.');
+        setProcessButtonReady(); // UX-01: enable the "Break it down" button
         loadHistory(); // This now also loads global stats
         loadFlashcards(); // === NEW ===
         seedHskDecks(); // preload HSK 1–6 decks on first run
@@ -655,25 +692,42 @@ if (textInput) {
     textInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            let text = textInput.value.trim();
-            if (!text) return;
-            if (!dictionary || !segmentit) return;
-            if (chineseOnlyToggle && chineseOnlyToggle.checked) {
-                const zh = extractChineseText(text);
-                if (!zh) {
-                    finalOutput.innerHTML = `<p class="info">No Chinese text found in that paste.</p>`;
-                    return;
-                }
-                text = zh;
-            } else {
-                text = text.replace(/\n/g, '。');
-            }
-            processingOverlay.classList.add('visible');
-            statsContent.innerHTML = "";
-            processTranscription(text);
-            textInput.value = "";
+            submitTextInput();
         }
     });
+    if (processTextBtn) processTextBtn.addEventListener('click', submitTextInput);
+}
+
+// UX-01: shared submit path for both the Enter key and the visible "Break it down"
+// button. Guards against running before the dictionary/segmenter have loaded.
+function submitTextInput() {
+    let text = textInput.value.trim();
+    if (!text) return;
+    if (!dictionary || !segmentit) {
+        finalOutput.innerHTML = `<p class="info">Still loading the dictionary — one moment…</p>`;
+        return;
+    }
+    if (chineseOnlyToggle && chineseOnlyToggle.checked) {
+        const zh = extractChineseText(text);
+        if (!zh) {
+            finalOutput.innerHTML = `<p class="info">No Chinese text found in that paste.</p>`;
+            return;
+        }
+        text = zh;
+    } else {
+        text = text.replace(/\n/g, '。');
+    }
+    processingOverlay.classList.add('visible');
+    statsContent.innerHTML = "";
+    processTranscription(text);
+    textInput.value = "";
+}
+
+// Flip the "Break it down" button from its loading state to ready.
+function setProcessButtonReady() {
+    if (!processTextBtn) return;
+    processTextBtn.disabled = false;
+    processTextBtn.textContent = 'Break it down';
 }
 
 controlsToggleBtn.addEventListener('click', () => {
@@ -2041,16 +2095,10 @@ async function speakFromQueueWithHighlight(scopeElement = document) {
     }
 
 
-    await new Promise(resolve => {
-        const utterance = new SpeechSynthesisUtterance(char);
-        const selectedVoice = availableVoices.find(v => v.name === voiceSelector.value);
-        if (selectedVoice) utterance.voice = selectedVoice;
-        utterance.lang = 'zh-CN';
-        utterance.rate = parseFloat(speedSlider.value);
-        utterance.onend = resolve;
-        utterance.onerror = (e) => { console.error("Speech Error:", e); resolve(); };
-        window.speechSynthesis.speak(utterance);
-    });
+    // BUG-04: route through speakSmart so the default "Natural (AI)" voice is
+    // honored here too (Play All / Play List / sentence playback) — not just on
+    // single taps. Falls back to the browser voice when one is selected.
+    await new Promise(resolve => speakSmart(char, { onend: resolve }));
 
     if (charElements.length > 0) {
         charElements.forEach(el => el.classList.remove('highlight'));
@@ -2478,15 +2526,8 @@ function speakFromQueue() {
     }
     isSpeaking = true;
     const text = speechQueue.shift();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const selectedVoiceName = voiceSelector.value;
-    const selectedVoice = availableVoices.find(voice => voice.name === selectedVoiceName);
-    if (selectedVoice) utterance.voice = selectedVoice;
-    utterance.lang = 'zh-CN';
-    utterance.rate = parseFloat(speedSlider.value);
-    utterance.onend = () => { isSpeaking = false; setTimeout(speakFromQueue, 100); };
-    utterance.onerror = (e) => { isSpeaking = false; console.error("Speech error:", e); setTimeout(speakFromQueue, 100); };
-    window.speechSynthesis.speak(utterance);
+    // BUG-04: honor the Natural (AI) voice for auto-pronounce / queued playback.
+    speakSmart(text, { onend: () => { isSpeaking = false; setTimeout(speakFromQueue, 100); } });
 }
 function populateVoiceList() {
     let previous = voiceSelector.value || localStorage.getItem('preferredVoice') || NATURAL_VOICE_VALUE;
@@ -6774,21 +6815,35 @@ function buildReaderHeatMap() {
     return map;
 }
 
+// PERF-02: memoize per-character lookups. The same common characters (的, 是, 一…)
+// recur thousands of times across a book/karaoke/subs; pinyin-pro is not cheap, so
+// cache the result the first time we see each character.
+const readerToneNumberCache = new Map();
+const readerPinyinToneCache = new Map();
+
 function readerToneNumber(ch) {
+    const cached = readerToneNumberCache.get(ch);
+    if (cached !== undefined) return cached;
     const arr = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(ch, { toneType: 'num', type: 'array' }) : null;
     const m = arr && arr[0] ? arr[0].match(/[1-5]/) : null;
-    return m ? m[0] : '5';
+    const tone = m ? m[0] : '5';
+    if (window.pinyinPro?.pinyin) readerToneNumberCache.set(ch, tone); // don't cache before libs load
+    return tone;
 }
 
 // One pinyin-pro call per character gives both the toned pinyin and the tone
-// number (was two calls per char).
+// number (was two calls per char), now memoized.
 function readerPinyinTone(ch) {
     if (!window.pinyinPro?.pinyin) return { py: '', tone: '5' };
+    const cached = readerPinyinToneCache.get(ch);
+    if (cached !== undefined) return cached;
     const r = window.pinyinPro.pinyin(ch, { type: 'all' });
     const o = Array.isArray(r) ? r[0] : r;
     if (!o) return { py: '', tone: '5' };
     const m = String(o.num == null ? '' : o.num).match(/[1-5]/);
-    return { py: o.pinyin || '', tone: m ? m[0] : '5' };
+    const res = { py: o.pinyin || '', tone: m ? m[0] : '5' };
+    readerPinyinToneCache.set(ch, res);
+    return res;
 }
 
 // One tone-colored, tappable character (opens its individual meaning card).
@@ -8108,6 +8163,15 @@ function closeSubs() {
 function renderSubsPlayer(name, cues) {
     ensureSubsOverlay();
     stopSubsReading();
+    // BUG-06: fully detach any video from a previous subtitle session, or it stays
+    // on screen, keeps playing audio, and its timeupdate hijacks the new file's sync.
+    if (subs.video) {
+        try { subs.video.pause(); } catch (_) {}
+        if (subs.video.src && subs.video.src.startsWith('blob:')) URL.revokeObjectURL(subs.video.src);
+        subs.video.removeAttribute('src');
+        subs.video.classList.remove('loaded');
+        try { subs.video.load(); } catch (_) {}
+    }
     subs.cues = cues;
     subs.elapsed = 0; subs.base = 0; subs.activeIdx = -1; subs.playing = false;
     subsOverlayEl.querySelector('#subs-title').textContent = name;

@@ -335,6 +335,16 @@
         #chinese-only-row .chinese-only-title { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
         #chinese-only-row .chinese-only-sub { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.2; }
         #chinese-only-row .toggle-switch { flex-shrink: 0; }
+        /* UX-01: visible submit button (Enter still works too). */
+        .process-text-btn {
+            width: 100%; margin-top: 10px; padding: 13px 16px; min-height: 46px;
+            border: none; border-radius: var(--radius-md); cursor: pointer;
+            font-size: 0.95rem; font-weight: 700; color: #fff; background: var(--accent-grad, var(--accent-color));
+            transition: transform 0.1s var(--ease-spring), opacity 0.15s;
+        }
+        .process-text-btn:hover { opacity: 0.94; }
+        .process-text-btn:active { transform: scale(0.985); }
+        .process-text-btn:disabled { opacity: 0.55; cursor: default; background: var(--input-bg); color: var(--text-secondary); }
 
         #waveContainer { display: none; align-items: center; justify-content: center; height: 150px; gap: 6px; margin-bottom: 1rem; flex-shrink: 0; }
         #waveContainer.show { display: flex; }
@@ -1559,6 +1569,7 @@
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+                        <button id="process-text-btn" class="process-text-btn" disabled>Loading dictionary…</button>
                     </div>
                     <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display:none;">
                     <input type="file" id="book-file-input" accept=".epub,.pdf,.txt" style="display:none;">
