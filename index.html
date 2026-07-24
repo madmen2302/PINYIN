@@ -1109,6 +1109,7 @@
         /* Voice tutor — fixed-height flex panel: collapsible setup on top, the
            conversation grows to fill the rest. */
         #tutor-modal .tutor-modal-content {
+            position: relative;
             max-width: 460px; width: 92%;
             height: min(88dvh, 780px);
             display: flex; flex-direction: column; text-align: center;
@@ -1119,6 +1120,23 @@
         }
         .tutor-modal-content .game-topbar { flex: 0 0 auto; margin-bottom: 0.5rem; }
         .tutor-modal-content .speak-record-btn { flex: 0 0 auto; }
+        /* On phones the tutor becomes a full-screen sheet so the chat gets the whole
+           screen instead of floating in a small card with wasted margins. */
+        @media (max-width: 640px) {
+            /* Full-screen sheet edge to edge; content padding clears the notch and
+               home-indicator so nothing floats in a ~70%-height card. */
+            #tutor-modal { align-items: stretch; }
+            #tutor-modal .tutor-modal-content {
+                width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+                border-radius: 0; border: none;
+                padding: calc(0.5rem + env(safe-area-inset-top)) 0.85rem calc(0.5rem + env(safe-area-inset-bottom));
+            }
+            .tutor-modal-content .game-topbar { margin-bottom: 0.35rem; }
+            #tutor-modal .tutor-mode-switch { margin: 2px auto 0; }
+            #tutor-modal .tutor-setup-toggle { margin-bottom: 0.35rem; }
+            #tutor-modal .tutor-msgs { margin-top: 0.25rem; }
+            #tutor-modal.chatting .tutor-chat-close { top: calc(env(safe-area-inset-top) + 6px); }
+        }
         .tutor-setup-toggle {
             flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 0.4rem;
             width: 100%; margin-bottom: 0.5rem; padding: 0.4rem; cursor: pointer;
@@ -1205,16 +1223,25 @@
         #tutor-modal.text-mode:not(.chatting) .tutor-input-row { display: none; }
 
         /* ---- Text chat transcript ---- */
-        .tutor-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.55rem;
-            padding: 0.25rem; margin-top: 0.5rem; }
-        .tutor-msg { max-width: 85%; padding: 0.5rem 0.7rem; border-radius: var(--radius-md); text-align: left; line-height: 1.5; }
+        .tutor-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+            gap: 0.55rem; padding: 0.25rem; margin-top: 0.5rem; }
+        .tutor-msgs > * { flex: 0 0 auto; } /* keep bubbles their natural height */
+        /* Bottom-anchor the conversation (grows up from the input, iMessage-style)
+           without the justify-content:flex-end scroll-clip bug: an auto-margin
+           spacer collapses to 0 once messages overflow, so scrolling stays intact. */
+        .tutor-msgs::before { content: ''; margin-top: auto; }
+        .tutor-msg { max-width: 88%; padding: 0.5rem 0.7rem; border-radius: var(--radius-md); text-align: left; line-height: 1.5; }
         .tutor-msg-you { align-self: flex-end; background: var(--accent-color); color: #fff; }
         .tutor-msg-you .rd-char rt { color: rgba(255,255,255,0.85); }
-        .tutor-msg-ai { align-self: flex-start; background: var(--card-bg); border: 1px solid var(--border-hairline); color: var(--text-main); }
+        .tutor-msg-ai { align-self: flex-start; display: flex; align-items: center; gap: 8px;
+            background: var(--card-bg); border: 1px solid var(--border-hairline); color: var(--text-main); }
+        .tutor-msg-body { min-width: 0; }
         .tutor-msg-sys { align-self: center; max-width: 100%; font-size: 0.82rem; color: var(--danger-color); background: none; padding: 0.2rem; text-align: center; }
-        .tutor-msg-head { display: flex; justify-content: flex-end; margin-bottom: 0.1rem; }
-        .tutor-msg-play { background: none; border: none; cursor: pointer; font-size: 0.95rem; padding: 0 2px; opacity: 0.75; }
-        .tutor-msg-play:hover { opacity: 1; }
+        /* Inline round play button to the left of the tutor's line. */
+        .tutor-msg-play { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 0.7rem; padding-left: 2px;
+            background: var(--accent-soft); color: var(--accent-color); border: 1px solid var(--border-hairline); }
+        .tutor-msg-play:hover { background: var(--accent-color); color: #fff; }
         .tutor-msg-zh { font-size: 1.3rem; }
         .tutor-msg-zh .rd-char rt { font-size: 0.62em; }
         .tutor-msg-en { display: none; margin-top: 0.35rem; font-size: 0.85rem; font-style: italic; color: var(--text-secondary);
@@ -1237,6 +1264,32 @@
         .tutor-send { width: 42px; height: 42px; font-size: 1.1rem; background: var(--accent-color); color: #fff; }
         .tutor-send:disabled { opacity: 0.5; cursor: default; }
         .tutor-text-end { padding: 0 0.7rem; height: 42px; font-size: 0.8rem; background: var(--input-bg); color: var(--text-secondary); border: 1px solid var(--border-hairline); }
+
+        /* Suggestions as a horizontal swipe carousel: one chip shows at a time,
+           swipe left/right for the next/previous (a sliver of the neighbour peeks
+           through to signal it's swipeable). Chips: zh on top, pinyin · English below. */
+        .tutor-suggestions { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 8px;
+            scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+            margin-top: 0; padding: 0.4rem 2px 0.1rem; scrollbar-width: none; }
+        .tutor-suggestions::-webkit-scrollbar { display: none; }
+        #tutor-suggestions .tutor-sugg { flex: 0 0 86%; scroll-snap-align: center; margin-bottom: 0; padding: 7px 12px; gap: 1px; }
+        #tutor-suggestions .sugg-zh { font-size: 1.05rem; }
+        #tutor-suggestions .sugg-meta { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 1px; }
+        #tutor-suggestions .sugg-py { font-size: 0.76rem; }
+        #tutor-suggestions .sugg-en { font-size: 0.76rem; }
+        /* An empty status line (during a live text chat) shouldn't reserve space. */
+        #tutor-status:empty { display: none; margin: 0; }
+
+        /* Floating close (✕) for the immersive chat view, and hiding the top chrome
+           once a conversation is live so the chat gets the whole sheet. */
+        .tutor-chat-close { display: none; position: absolute; top: 8px; right: 10px; z-index: 6;
+            width: 34px; height: 34px; border-radius: 50%; align-items: center; justify-content: center;
+            font-size: 0.95rem; cursor: pointer; background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-hairline); }
+        #tutor-modal.chatting .tutor-chat-close { display: flex; }
+        #tutor-modal.chatting .game-topbar,
+        #tutor-modal.chatting .tutor-mode-switch,
+        #tutor-modal.chatting #tutor-setup-toggle,
+        #tutor-modal.chatting #tutor-setup { display: none; }
 
         /* ================================================================
            TONE COLORS (Pleco-style) + BOOK READER

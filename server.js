@@ -618,6 +618,10 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
 // open a WebRTC session directly with OpenAI's Realtime API.
 const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime-2.1';
 const REALTIME_VOICE = process.env.REALTIME_VOICE || 'marin';
+// Known-good OpenAI Realtime voices the client may request per scenario.
+const ALLOWED_REALTIME_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar'];
+// A distinctly warm female voice for the flirt/date roleplay (小雨).
+const REALTIME_VOICE_DATE = process.env.REALTIME_VOICE_DATE || 'coral';
 // Text-chat model for the typed tutor and reply suggestions (cheap, fast).
 const CHAT_MODEL = process.env.CHAT_MODEL || 'gpt-4o-mini';
 const TUTOR_INSTRUCTIONS =
@@ -632,7 +636,12 @@ app.post('/realtime-session', async (req, res) => {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: 'OpenAI API key not configured.' });
     try {
         // Scenario Director: role-play scenario + the learner's due SRS words to elicit.
-        const { scenario, targetWords } = req.body || {};
+        const { scenario, targetWords, voice: reqVoice, femaleVoice } = req.body || {};
+        // Voice selection: the flirt/date roleplay (小雨) uses a warm female voice;
+        // an explicit, allow-listed `voice` from the client overrides. Validation
+        // keeps a bad value from ever reaching OpenAI.
+        let voice = femaleVoice ? REALTIME_VOICE_DATE : REALTIME_VOICE;
+        if (typeof reqVoice === 'string' && ALLOWED_REALTIME_VOICES.includes(reqVoice)) voice = reqVoice;
         let instructions = TUTOR_INSTRUCTIONS;
         if (scenario) instructions += ` Role-play this scenario and stay in character throughout: ${String(scenario).slice(0, 1200)}.`;
         if (Array.isArray(targetWords) && targetWords.length) {
@@ -656,7 +665,7 @@ app.post('/realtime-session', async (req, res) => {
                             turn_detection: { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 1200 }
                         },
                         // Slightly slower, calmer speech for a beginner.
-                        output: { voice: REALTIME_VOICE, speed: 0.85 }
+                        output: { voice, speed: 0.85 }
                     }
                 }
             })

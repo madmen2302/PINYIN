@@ -6001,6 +6001,7 @@ function ensureTutorModal() {
     tutorModalEl.className = 'main-modal';
     tutorModalEl.innerHTML = `
         <div class="modal-content tutor-modal-content">
+            <button id="tutor-chat-close" class="tutor-chat-close" aria-label="Close chat">✕</button>
             <div class="game-topbar">
                 <h3>AI Tutor</h3>
                 <button id="tutor-close" class="modal-btn">Close</button>
@@ -6047,6 +6048,7 @@ function ensureTutorModal() {
         </div>`;
     document.body.appendChild(tutorModalEl);
     tutorModalEl.querySelector('#tutor-close').addEventListener('click', closeTutorModal);
+    tutorModalEl.querySelector('#tutor-chat-close').addEventListener('click', closeTutorModal);
     tutorModalEl.querySelector('#tutor-toggle').addEventListener('click', () => {
         if (tutorMode === 'text') { startTextTutor(); return; }
         tutorActive ? stopTutor() : startTutor();
@@ -6262,8 +6264,7 @@ async function refreshTutorSuggestions() {
             const py = window.pinyinPro?.pinyin ? window.pinyinPro.pinyin(s.zh, { toneType: 'symbol' }) : '';
             return `<button type="button" class="tutor-sugg" data-zh="${escapeHtml(s.zh)}">
                 <span class="sugg-zh">${escapeHtml(s.zh)}</span>
-                <span class="sugg-py">${escapeHtml(py)}</span>
-                <span class="sugg-en">${escapeHtml(s.en || '')}</span>
+                <span class="sugg-meta"><span class="sugg-py">${escapeHtml(py)}</span><span class="sugg-en">${escapeHtml(s.en || '')}</span></span>
             </button>`;
         }).join('');
     } catch (_) {
@@ -6283,12 +6284,15 @@ function renderTutorMsg(who, zh) {
         el.className = 'tutor-msg tutor-msg-you';
         el.innerHTML = `<div class="tutor-msg-zh">${renderRubyLine(zh)}</div>`;
     } else {
-        const en = ''; // English is fetched lazily on first tap (keeps it immersive)
         el.className = 'tutor-msg tutor-msg-ai';
+        // Play button sits inline to the left of the text (not its own row, which
+        // wasted vertical space). English is fetched lazily, revealed on tap.
         el.innerHTML =
-            `<div class="tutor-msg-head"><button class="tutor-msg-play" data-zh="${escapeHtml(zh)}" aria-label="Play">🔊</button></div>` +
-            `<div class="tutor-msg-zh">${renderRubyLine(zh)}</div>` +
-            `<div class="tutor-msg-en" data-zh="${escapeHtml(zh)}">${escapeHtml(en)}</div>`;
+            `<button class="tutor-msg-play" data-zh="${escapeHtml(zh)}" aria-label="Play audio">▶</button>` +
+            `<div class="tutor-msg-body">` +
+                `<div class="tutor-msg-zh">${renderRubyLine(zh)}</div>` +
+                `<div class="tutor-msg-en" data-zh="${escapeHtml(zh)}"></div>` +
+            `</div>`;
         fillTutorEnglish(el.querySelector('.tutor-msg-en'), zh);
     }
     msgs.appendChild(el);
@@ -6352,7 +6356,8 @@ async function startTutor() {
         // 1. Ephemeral token from our server (with the chosen scenario + due words).
         const sess = await fetch(`${backendUrl}/realtime-session`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ scenario: scenarioPrompt, targetWords: tutorTargetWords })
+            // Flirt/date roleplay (小雨) speaks with a warm female voice.
+            body: JSON.stringify({ scenario: scenarioPrompt, targetWords: tutorTargetWords, femaleVoice: isDateScenario() })
         });
         const sdata = await sess.json();
         if (!sess.ok) throw new Error(sdata.error || 'Could not start a session.');
